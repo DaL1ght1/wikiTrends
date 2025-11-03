@@ -1,0 +1,57 @@
+{
+"title": "Wikimedia Trending Topics",
+"timezone": "browser",
+"editable": true,
+"panels": [
+{
+"type": "table",
+"title": "Global Top‑20 (1m)",
+"gridPos": {"x": 0, "y": 0, "w": 24, "h": 10},
+"targets": [
+{
+"query": "score:>0",
+"refId": "A",
+"datasource": {"type": "grafana-opensearch-datasource", "uid": "OpenSearch"},
+"timeField": "ts_bucket",
+"bucketAggs": [
+{"type": "terms", "field": "lang", "id": "1", "settings": {"size": 1}},
+{"type": "top_metrics", "id": "2", "field": "score", "settings": {"size": 20, "metrics": [
+{"field": "title.keyword"}, {"field": "lang"}, {"field": "score"}, {"field": "metrics.edit_count"}, {"field": "metrics.unique_editors"}
+]}}
+],
+"pipelineAggs": []
+}
+],
+"options": {"showHeader": true}
+},
+{
+"type": "timeseries",
+"title": "Score over time (1m)",
+"gridPos": {"x": 0, "y": 10, "w": 24, "h": 8},
+"targets": [
+{
+"query": "title.keyword:$title",
+"refId": "B",
+"datasource": {"type": "grafana-opensearch-datasource", "uid": "OpenSearch"},
+"timeField": "ts_bucket",
+"bucketAggs": [{"type": "date_histogram", "field": "ts_bucket", "id": "1", "settings": {"interval": "10s"}}],
+"metrics": [{"id": "2", "type": "avg", "field": "score"}]
+}
+]
+}
+],
+"templating": {
+"list": [
+{
+"type": "query",
+"name": "title",
+"label": "Page Title",
+"datasource": {"type": "grafana-opensearch-datasource", "uid": "OpenSearch"},
+"query": "{" + "find": "terms", "field": "title.keyword", "size": 50 + "}",
+"refresh": 2
+}
+]
+},
+"schemaVersion": 37,
+"version": 1
+}

@@ -1,0 +1,176 @@
+services:
+  # -------------------------------------------------------
+  # Core Data Infrastructure
+  # -------------------------------------------------------
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    ports:
+      - "29092:29092"   # Host access to Kafka
+    environment:
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
+      - KAFKA_CFG_LOG_RETENTION_HOURS=72
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks: [core]
+
+  kafka-init:
+    image: bitnami/kafka:3.7
+    container_name: kafka-init
+    depends_on:
+      - kafka
+    entrypoint: ["/bin/bash","/scripts/create-topics.sh"]
+    volumes:
+      - ./conf/kafka:/scripts
+    networks: [core]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.14.0
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true   # dev only
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+      - ./conf/opensearch:/usr/share/opensearch/config-extra
+    networks: [core]
+
+  dashboards:
+    image: opensearchproject/opensearch-dashboards:2.14.0
+    container_name: opensearch-dashboards
+    depends_on:
+      - opensearch
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "5601:5601"
+    networks: [core]
+
+  grafana:
+    image: grafana/grafana:10.4.3
+    container_name: grafana
+    depends_on:
+      - opensearch
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./conf/grafana/provisioning:/etc/grafana/provisioning
+      - ./conf/grafana/dashboards:/var/lib/grafana/dashboards
+    networks: [core]
+
+  # -------------------------------------------------------
+  # Spark Runtime (for streaming + batch)
+  # -------------------------------------------------------
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_NO_DAEMONIZE=true
+    ports:
+      - "7077:7077"  # Spark cluster
+      - "8080:8080"  # Spark master UI
+    networks: [core]
+
+  spark-worker-1:
+    image: bitnami/spark:3.5
+    container_name: spark-worker-1
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=4G
+      - SPARK_WORKER_CORES=2
+      - SPARK_NO_DAEMONIZE=true
+    depends_on:
+      - spark-master
+    networks: [core]
+
+  # -------------------------------------------------------
+  # Your Application Containers (you implement)
+  # -------------------------------------------------------
+  sse-ingestor:
+    build: ./apps/sse-ingestor
+    container_name: sse-ingestor
+    depends_on:
+      - kafka
+    environment:
+      - EVENTSTREAM_URL=https://stream.wikimedia.org/v2/stream/recentchange
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - KAFKA_TOPIC=wikimedia.recentchange.raw
+    networks: [core]
+
+  stream-aggregator:
+    build: ./apps/stream-aggregator
+    container_name: stream-aggregator
+    depends_on:
+      - kafka
+      - spark-master
+      - spark-worker-1
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - INPUT_TOPIC=wikimedia.recentchange.raw
+      - CLEAN_TOPIC=wikimedia.recentchange.clean
+      - TREND_TOPIC_1M=trending.windows.1m
+      - TREND_TOPIC_5M=trending.windows.5m
+      - CHECKPOINT_DIR=/checkpoints/stream-aggregator
+    volumes:
+      - spark-checkpoints:/checkpoints
+    networks: [core]
+
+  trending-indexer:
+    build: ./apps/trending-indexer
+    container_name: trending-indexer
+    depends_on:
+      - kafka
+      - opensearch
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - INPUT_TOPICS=trending.windows.1m,trending.windows.5m
+      - OPENSEARCH_URL=http://opensearch:9200
+      - INDEX_1M=trending-1m
+      - INDEX_5M=trending-5m
+    networks: [core]
+
+  # One-off batch job (run with: `docker compose --profile batch up baseline-batch --build`)
+  baseline-batch:
+    profiles: ["batch"]
+    build: ./apps/baseline-batch
+    container_name: baseline-batch
+    depends_on:
+      - spark-master
+      - spark-worker-1
+    environment:
+      - AQS_BASE=https://wikimedia.org/api/rest_v1/metrics/pageviews
+      - LAKE_ROOT=/lake
+    volumes:
+      - lake:/lake
+    networks: [core]
+
+networks:
+  core:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  opensearch-data:
+  spark-checkpoints:
+  lake:

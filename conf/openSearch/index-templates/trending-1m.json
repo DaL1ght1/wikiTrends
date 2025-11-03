@@ -1,0 +1,41 @@
+{
+"index_patterns": ["trending-1m-*"] ,
+"template": {
+"settings": {
+"number_of_shards": 1,
+"number_of_replicas": 0,
+"refresh_interval": "10s"
+},
+"mappings": {
+"dynamic": false,
+"properties": {
+"ts_bucket": {"type": "date"},
+"wiki": {"type": "keyword"},
+"lang": {"type": "keyword"},
+"title": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
+"url": {"type": "keyword"},
+"window_size": {"type": "keyword"},
+"score": {"type": "float"},
+"rank": {"type": "integer"},
+"metrics": {
+"properties": {
+"edit_count": {"type": "integer"},
+"unique_editors": {"type": "integer"},
+"revert_count": {"type": "integer"},
+"sum_abs_delta": {"type": "long"},
+"editor_entropy": {"type": "float"},
+"minor_share": {"type": "float"},
+"bot_share": {"type": "float"}
+}
+},
+"baseline": {
+"properties": {
+"mu_edits": {"type": "float"},
+"sigma_edits": {"type": "float"}
+}
+}
+}
+}
+},
+"_meta": {"owner": "trending-topics", "window": "1m"}
+}
