@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<configuration>
+    <property>
+        <name>hbase.rootdir</name>
+        <value>hdfs://hadoop-namenode:8020/hbase</value>
+    </property>
+    <property>
+        <name>hbase.zookeeper.quorum</name>
+        <value>zookeeper</value>
+    </property>
+    <property>
+        <name>hbase.regionserver.port</name>
+        <value>16201</value>
+    </property>
+    <property>
+        <name>hbase.master.port</name>
+        <value>16000</value>
+    </property>
+    <property>
+        <name>hbase.master.info.port</name>
+        <value>16010</value>
+    </property>
+    <property>
+        <name>hbase.regionserver.info.port</name>
+        <value>16030</value>
+    </property>
+</configuration>

@@ -1,7 +1,7 @@
-FROM bitnami/spark:3.5
+FROM apache/spark:3.5.3
+USER root
 WORKDIR /app
-# If you need extra Py libs inside Spark executors, add them here
 COPY . /app
 ENV PYTHONUNBUFFERED=1
-# Expect your submit.sh to call spark-submit with the right args
-CMD ["/bin/bash", "submit.sh"]
+# Pull Kafka connector + clients at runtime via --packages
+CMD ["/opt/spark/bin/spark-submit","--master","spark://spark-master:7077","--packages","org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.apache.kafka:kafka-clients:3.5.2","/app/main.py"]

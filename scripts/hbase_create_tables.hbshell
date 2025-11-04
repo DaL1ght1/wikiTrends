@@ -1,0 +1,3 @@
+create 'rc_clean_minute', {NAME => 'm', VERSIONS => 1, BLOOMFILTER => 'ROW', COMPRESSION => 'SNAPPY', TTL => 7776000}
+
+create 'rc_raw_clean', {NAME => 'c', VERSIONS => 1, BLOOMFILTER => 'ROW', COMPRESSION => 'SNAPPY', TTL => 2592000}
