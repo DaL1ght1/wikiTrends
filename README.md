@@ -233,107 +233,8 @@ docker compose down -v
    - **Solution:** Install `grafana-opensearch-datasource` plugin on first run
    - **File Changed:** `conf/grafana/provisioning/datasources/opensearch.yml`
 
-### 📚 Documentation
-
-See these files for detailed information:
-- **PIPELINE_TEST_RESULTS.md** - Complete testing results and verification
-- **DASHBOARD_ACCESS_GUIDE.md** - Dashboard setup and usage instructions  
-- **STREAM_AGGREGATOR_TEST_RESULTS.md** - Technical details on stream-aggregator fixes
-
 ---
-
-## 5) Troubleshooting
-
-### No Data in Dashboards
-
-1. **Check if data is being ingested:**
-   ```bash
-   docker compose logs --tail=20 sse-ingestor
-   docker compose exec kafka kafka-console-consumer --bootstrap-server kafka:9092 --topic wikimedia.recentchange.raw --max-messages 5
-   ```
-
-2. **Check if stream-aggregator is processing:**
-   ```bash
-   docker compose logs --tail=50 stream-aggregator | grep -i error
-   docker compose ps stream-aggregator
-   ```
-
-3. **Check if indexing is working:**
-   ```bash
-   docker compose logs --tail=20 trending-indexer
-   curl "http://localhost:9200/_cat/indices/trending-*?v"
-   ```
-
-4. **Verify time range in dashboards:**
-   - Set time range to "Last 1 hour" or "Last 15 minutes"
-   - Check latest data timestamp:
-     ```bash
-     curl -s "http://localhost:9200/trending-1m/_search?size=1&sort=ts_bucket:desc" | jq '.hits.hits[0]._source.ts_bucket'
-     ```
-
-### Container Restart Loops
-
-1. **Check container logs:**
-   ```bash
-   docker compose logs <container-name>
-   ```
-
-2. **Check resource usage:**
-   ```bash
-   docker stats
-   ```
-   Ensure you have at least 8GB RAM available.
-
-3. **Restart specific service:**
-   ```bash
-   docker compose restart <service-name>
-   ```
-
-### Grafana Dashboard Not Loading
-
-1. **Install OpenSearch plugin (if needed):**
-   ```bash
-   docker compose exec grafana grafana-cli plugins install grafana-opensearch-datasource
-   docker compose restart grafana
-   ```
-
-2. **Check datasource connection:**
-   - Go to: Configuration → Data Sources → OpenSearch
-   - Click "Test" - should show "Data source is working"
-
-3. **Verify dashboard exists:**
-   - Navigate to: Dashboards → Browse
-   - Look for "Wikimedia Trending Topics" in the Trending folder
-
-### Performance Issues
-
-1. **Reduce Spark parallelism (if low on resources):**
-   Edit `docker-compose.yml`:
-   ```yaml
-   spark-worker-1:
-     environment:
-       SPARK_WORKER_MEMORY: 4G  # Reduce from 6G
-       SPARK_WORKER_CORES: "2"  # Reduce from 3
-   ```
-
-2. **Increase Kafka consumer fetch size:**
-   In consumer code, increase `max.poll.records` or batch size.
-
-3. **Monitor component health:**
-   ```bash
-   # Spark jobs
-   open http://localhost:8080
-   
-   # OpenSearch cluster health
-   curl "http://localhost:9200/_cluster/health?pretty"
-   
-   # Kafka consumer lag
-   docker compose exec kafka kafka-consumer-groups --bootstrap-server kafka:9092 --describe --all-groups
-   ```
-
----
-
-## 6) Architecture & Data Flow
+## 5) Architecture & Data Flow
 
 ```
 Wikimedia SSE Stream
@@ -378,7 +279,7 @@ Wikimedia SSE Stream
 
 ---
 
-## 7) Environment knobs (tune for your demo)
+## 6) Environment knobs (tune for your demo)
 
 * **Kafka partitions**: start with 3; bump to 6 if you see lag.
 * **Spark**: worker cores/memory set in compose; adjust to match your laptop/VM.
@@ -387,7 +288,7 @@ Wikimedia SSE Stream
 
 ---
 
-## 8) Project Deliverables
+## 7) Project Deliverables
 
 ### ✅ Real-Time Data Collection
 - **Component:** `sse-ingestor` + Apache Kafka
@@ -440,7 +341,7 @@ Wikimedia SSE Stream
 
 ---
 
-## 9) Acknowledgments & References
+## 8) Acknowledgments & References
 
 - **Data Source:** [Wikimedia EventStreams](https://stream.wikimedia.org/)
 - **Architecture Inspiration:** Lambda Architecture for real-time + batch processing
@@ -470,7 +371,3 @@ curl "http://localhost:9200/_cat/indices/trending-*?v"
 # OpenSearch Dashboards: http://localhost:5601
 ```
 
-For detailed setup, troubleshooting, and usage instructions, see:
-- **Quick Start:** Section 3 above
-- **Dashboard Guide:** DASHBOARD_ACCESS_GUIDE.md
-- **Test Results:** PIPELINE_TEST_RESULTS.md
