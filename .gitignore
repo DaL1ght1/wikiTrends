@@ -1,0 +1,226 @@
+# ============================================
+# Big Data Pipeline Project - .gitignore
+# ============================================
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+PIPFILE.lock
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# ============================================
+# Docker
+# ============================================
+*.log
+.docker/
+docker-compose.override.yml
+
+# ============================================
+# Data & Volumes
+# ============================================
+# Lake data (Parquet files)
+lake/
+data/
+*.parquet
+*.csv
+*.json.gz
+
+# Checkpoints
+checkpoints/
+*.checkpoint
+
+# Kafka data
+kafka-data/
+
+# OpenSearch/Elasticsearch data
+opensearch-data/
+elasticsearch-data/
+
+# Grafana data
+grafana-data/
+
+# HDFS data
+hadoop-namenode/
+hadoop-datanode/
+
+# HBase data
+hbase-data/
+
+# Spark/Ivy cache
+ivy-cache/
+.ivy2/
+
+# ============================================
+# Spark
+# ============================================
+# Spark event logs
+spark-events/
+*.spark
+metastore_db/
+derby.log
+
+# Spark warehouse
+spark-warehouse/
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.out
+*.err
+
+# ============================================
+# OS Files
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.temp
+*.swp
+*.swo
+.~lock.*
+
+# ============================================
+# Credentials & Secrets
+# ============================================
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+.secrets/
+secrets.yml
+secrets.yaml
+credentials.json
+.credentials
+
+# Environment variables with secrets
+.env.local
+.env.*.local
+
+# ============================================
+# Testing & Coverage
+# ============================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ============================================
+# Documentation Builds
+# ============================================
+docs/_build/
+site/
+
+# ============================================
+# Project Specific
+# ============================================
+# Backup files
+*.bak
+*.backup
+
+# Archive files
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+
+# Large binary files (unless tracked with LFS)
+*.bin
+*.dat
+
+# Compiled Java/Scala (if any)
+*.class
+target/
+
+# Node modules (if any frontend)
+node_modules/
+package-lock.json
+yarn.lock
+
+# ============================================
+# Keep These Files (force include)
+# ============================================
+# Keep empty directories
+!.gitkeep
+
+# Keep configuration templates
+!conf/**/*.example
+!*.template

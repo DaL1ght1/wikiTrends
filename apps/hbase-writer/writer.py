@@ -44,14 +44,37 @@ def main():
         value_deserializer=lambda v: ujson.loads(v.decode("utf-8")),
     )
     session = requests.Session()
+    
+    # Create table if it doesn't exist
+    schema = {
+        "name": TABLE,
+        "ColumnSchema": [{"name": "m"}]  # column family 'm' for metrics
+    }
+    r = session.put(f"{HBASE_REST}/{TABLE}/schema", 
+                    json=schema,
+                    headers={"Content-Type": "application/json"},
+                    timeout=10)
+    if r.status_code not in [200, 201]:
+        print(f"Table creation result: {r.status_code} - {r.text}")
+    else:
+        print(f"Table {TABLE} created or already exists")
+    
+    print(f"Starting to consume from topics: {INPUT_TOPICS}")
     for msg in consumer:
         d = msg.value
         rk = rowkey(d)
-        payload = {"Row":[{"key": b64(rk), "Cell": to_cells(d)}]}
-        # Stargate bulk PUT; many builds accept JSON at /<table>/<row>
-        r = session.put(f"{HBASE_REST}/{TABLE}/fakerow", json=payload, timeout=5)
+        cells = to_cells(d)
+        # Write to specific row using standard HBase REST API
+        payload = {"Row":[{"key": b64(rk), "Cell": cells}]}
+        url = f"{HBASE_REST}/{TABLE}/{rk}"
+        r = session.put(url, 
+                        json=payload,
+                        headers={"Content-Type": "application/json", "Accept": "application/json"},
+                        timeout=5)
         if r.status_code >= 300:
-            print("HBase write error", r.status_code, r.text)
+            print(f"HBase write error {r.status_code} to {url}: {r.text[:200]}")
+        elif msg.offset % 100 == 0:  # Log every 100 messages
+            print(f"Successfully wrote {msg.offset} messages to HBase")
 
 if __name__ == "__main__":
     main()

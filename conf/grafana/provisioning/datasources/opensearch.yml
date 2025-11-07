@@ -9,12 +9,14 @@ deleteDatasources:
 datasources:
   - name: OpenSearch
     type: grafana-opensearch-datasource
+    uid: opensearch-trending
     access: proxy
     url: http://opensearch:9200
     jsonData:
-      database: "trending-1m-*"
+      database: "trending-*"
       flavor: "opensearch"
       timeField: "ts_bucket"
       version: "2.14.0"
       interval: "10s"
+      pplEnabled: false
     isDefault: true

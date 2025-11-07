@@ -258,6 +258,8 @@ services:
         condition: service_healthy
       spark-master:
         condition: service_healthy
+      hadoop-namenode:
+        condition: service_healthy
       hbase:
         condition: service_healthy
     environment:
@@ -267,9 +269,8 @@ services:
       TREND_TOPIC_1M: ${TREND_TOPIC_1M:-trending.windows.1m}
       TREND_TOPIC_5M: ${TREND_TOPIC_5M:-trending.windows.5m}
       HBASE_REST_URL: http://hbase:8085
-      CHECKPOINT_DIR: /checkpoints/stream-agg
+      CHECKPOINT_DIR: hdfs://hadoop-namenode:9000/checkpoints/stream-agg
     volumes:
-      - spark-checkpoints:/checkpoints
       - ivy-cache:/root/.ivy2
     networks:
       - core

@@ -10,7 +10,7 @@ CLEAN_TOPIC     = os.getenv("CLEAN_TOPIC", "wikimedia.recentchange.clean")
 
 T1M_TOPIC       = os.getenv("TREND_TOPIC_1M", "trending.windows.1m")
 T5M_TOPIC       = os.getenv("TREND_TOPIC_5M", "trending.windows.5m")
-CHECKPOINT_DIR  = os.getenv("CHECKPOINT_DIR", "/checkpoints/stream-agg")
+CHECKPOINT_DIR  = os.getenv("CHECKPOINT_DIR", "hdfs://hadoop-namenode:9000/checkpoints/stream-agg")
 
 # Windows / watermark / trigger
 WINDOW_1M       = os.getenv("WINDOW_1M",  "1 minute")

@@ -1,65 +1,229 @@
 {
-  "title": "Wikimedia Trending Topics",
-  "timezone": "browser",
+  "annotations": {
+    "list": []
+  },
   "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
   "panels": [
     {
-      "type": "table",
-      "title": "Global Top‑20 (1m)",
-      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 10},
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-trending"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.3",
       "targets": [
         {
-          "query": "score:>0",
-          "refId": "A",
-          "datasource": {"type": "grafana-opensearch-datasource", "uid": "OpenSearch"},
-          "timeField": "ts_bucket",
+          "alias": "",
           "bucketAggs": [
-            {"type": "terms", "field": "lang", "id": "1", "settings": {"size": 1}},
-            {"type": "top_metrics", "id": "2", "field": "score", "settings": {"size": 20, "metrics": [
-              {"field": "title.keyword"},
-              {"field": "lang"},
-              {"field": "score"},
-              {"field": "metrics.edit_count"},
-              {"field": "metrics.unique_editors"}
-            ]}}
+            {
+              "field": "title.keyword",
+              "id": "2",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "_term",
+                "size": "20"
+              },
+              "type": "terms"
+            }
           ],
-          "pipelineAggs": []
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-trending"
+          },
+          "metrics": [
+            {
+              "id": "1",
+              "type": "max",
+              "field": "score"
+            },
+            {
+              "id": "3",
+              "type": "max",
+              "field": "edit_count"
+            },
+            {
+              "id": "4",
+              "type": "max",
+              "field": "unique_editors"
+            }
+          ],
+          "query": "*",
+          "refId": "A",
+          "timeField": "ts_bucket"
         }
       ],
-      "options": {"showHeader": true}
+      "title": "Top 20 Trending Pages (1-minute windows)",
+      "type": "table"
     },
     {
-      "type": "timeseries",
-      "title": "Score over time (1m)",
-      "gridPos": {"x": 0, "y": 10, "w": 24, "h": 8},
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-trending"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
       "targets": [
         {
-          "query": "title.keyword:$title",
-          "refId": "B",
-          "datasource": {"type": "grafana-opensearch-datasource", "uid": "OpenSearch"},
-          "timeField": "ts_bucket",
+          "alias": "",
           "bucketAggs": [
-            {"type": "date_histogram", "field": "ts_bucket", "id": "1", "settings": {"interval": "10s"}}
+            {
+              "field": "ts_bucket",
+              "id": "2",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0",
+                "trimEdges": "0"
+              },
+              "type": "date_histogram"
+            }
           ],
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-trending"
+          },
           "metrics": [
-            {"id": "2", "type": "avg", "field": "score"}
-          ]
+            {
+              "id": "1",
+              "type": "sum",
+              "field": "edit_count"
+            }
+          ],
+          "query": "*",
+          "refId": "A",
+          "timeField": "ts_bucket"
         }
-      ]
+      ],
+      "title": "Total Edits Over Time",
+      "type": "timeseries"
     }
   ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["trending", "wikipedia"],
   "templating": {
-    "list": [
-      {
-        "type": "query",
-        "name": "title",
-        "label": "Page Title",
-        "datasource": {"type": "grafana-opensearch-datasource", "uid": "OpenSearch"},
-        "query": "{\"find\": \"terms\", \"field\": \"title.keyword\", \"size\": 50}",
-        "refresh": 2
-      }
-    ]
+    "list": []
   },
-  "schemaVersion": 37,
-  "version": 1
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Wikimedia Trending Topics",
+  "uid": "trending-wikimedia",
+  "version": 1,
+  "weekStart": ""
 }
