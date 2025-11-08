@@ -58,7 +58,7 @@ def main():
         print(f"Table creation result: {r.status_code} - {r.text}")
     else:
         print(f"Table {TABLE} created or already exists")
-    #
+    ####
     print(f"Starting to consume from topics: {INPUT_TOPICS}")
     for msg in consumer:
         d = msg.value
