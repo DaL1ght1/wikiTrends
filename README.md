@@ -344,14 +344,9 @@ Wikimedia SSE Stream
 ## 8) Acknowledgments & References
 
 - **Data Source:** [Wikimedia EventStreams](https://stream.wikimedia.org/)
-- **Architecture Inspiration:** Lambda Architecture for real-time + batch processing
+- **Architecture Inspiration:** Kappa Architecture for real-time + batch processing
 - **Technologies:** Apache Software Foundation projects (Kafka, Spark, Hadoop)
 - **OpenSearch:** Fork of Elasticsearch/Kibana by Amazon
-
-**Project Team:**  
-Siwar Krifi - khalil.krifi@ensi-uma.tn  
-ENSI - UMA, Tunisia
-
 ---
 
 ## 🚀 Getting Started (TL;DR)
