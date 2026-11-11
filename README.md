@@ -1,368 +1,235 @@
-# 📊 Wikimedia Trending Topics — Real-Time Analytics Pipeline
+# WikiTrends
 
-<div align="center">
+**A live breaking-news radar built from Wikipedia edits.**
 
-![Status](https://img.shields.io/badge/Status-Operational-success?style=for-the-badge)
-![Kafka](https://img.shields.io/badge/Kafka-7.6.1-black?style=for-the-badge&logo=apache-kafka)
-![Spark](https://img.shields.io/badge/Spark-3.5.3-E25A1C?style=for-the-badge&logo=apache-spark&logoColor=white)
-![OpenSearch](https://img.shields.io/badge/OpenSearch-2.14.0-005EB8?style=for-the-badge&logo=opensearch)
+When something happens in the world (a death, an earthquake, a match, an election), Wikipedia
+editors react within minutes, often in several languages at once. WikiTrends watches every
+edit on every Wikimedia wiki and does four things:
+- flags the pages being edited far more than usual;
+- groups the same topic across languages;
+- shows exactly what changed;
+- alerts you.
 
-**A production-ready streaming analytics system tracking trending Wikipedia pages in real-time**
+![WikiTrends radar](docs/screenshot.png)
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Architecture](#-architecture) • [Dashboards](#-dashboards) • [Documentation](#-documentation)
+## Who it's for
 
-</div>
+- **Journalists and OSINT researchers:** spot events early. A topic surging in five language
+  editions at once is a strong, independent signal that something real is happening.
+- **Wikipedia patrollers:** find contested pages (editors reverting each other), read each edit's
+  diff in place, and watch what bots are doing.
+- **Students and data engineers:** a complete, working streaming pipeline (Kafka, Spark
+  Structured Streaming, HDFS, HBase, OpenSearch) that runs on a laptop with one command.
 
----
+## Quick start
 
-## 🎯 Overview
-
-This project implements a **Kappa Architecture** streaming pipeline that processes live Wikipedia edit events from Wikimedia's event stream, computes real-time trending scores using windowed aggregations, and visualizes the results through interactive dashboards.
-
-**Key Capabilities:**
-- 🔴 **Real-time ingestion** from Wikimedia SSE stream (100s of events/second)
-- ⚡ **Sub-60 second latency** from event to visualization
-- 📈 **Windowed analytics** with 1-minute and 5-minute trending windows
-- 🔍 **Full-text search** and aggregations on trending pages
-- 📊 **Live dashboards** with Grafana and OpenSearch
-- 🛡️ **Fault-tolerant** processing with HDFS checkpoints
-
----
-
-## 1) File/Folder Architecture (what you must code and why)
-
-```
-.
-├─ docker-compose.yml
-├─ .env                         # optional: centralize env overrides
-├─ conf/
-│  ├─ kafka/
-│  │  └─ create-topics.sh      # creates the 4 topics used in the pipeline
-│  ├─ opensearch/
-│  │  ├─ index-templates/
-│  │  │  ├─ trending-1m.json   # template/mappings for 1m buckets (you provide)
-│  │  │  └─ trending-5m.json   # template/mappings for 5m buckets (you provide)
-│  │  └─ pipelines/            # optional ingest pipelines (e.g., timestamp parsing)
-│  └─ grafana/
-│     ├─ provisioning/
-│     │  ├─ datasources/
-│     │  │  └─ opensearch.yml  # points Grafana → OpenSearch
-│     │  └─ dashboards/
-│     │     └─ dashboards.yml  # auto-loads dashboards from ../dashboards
-│     └─ dashboards/
-│        └─ trending.json      # ready-made dashboard export (you create)
-│
-├─ apps/
-│  ├─ sse-ingestor/
-│  │  ├─ Dockerfile            # tiny image (python:slim). Installs deps: requests/sseclient, confluent-kafka or kafka-python
-│  │  ├─ app.py                # **YOU**: consume Wikimedia SSE → produce to Kafka topic `wikimedia.recentchange.raw`
-│  │  └─ config.yml            # optional: filters (include/exclude wikis, namespaces, bot/minor flags)
-│  │
-│  ├─ stream-aggregator/
-│  │  ├─ Dockerfile            # based on bitnami/spark or openjdk/python with spark-submit
-│  │  ├─ main.py               # **YOU**: Spark Structured Streaming job
-│  │  │                        #   - reads `wikimedia.recentchange.raw`
-│  │  │                        #   - filters (drop bots/minor if desired)
-│  │  │                        #   - windowed agg (1m, 5m) by (wiki/title)
-│  │  │                        #   - computes metrics (edits, unique editors, abs bytes, entropy, etc.)
-│  │  │                        #   - computes z-scores vs. rolling/batch baseline (optional)
-│  │  │                        #   - writes to `wikimedia.recentchange.clean` + `trending.windows.{1m,5m}`
-│  │  ├─ requirements.txt      # if using pyspark helpers; otherwise package with the image
-│  │  └─ submit.sh             # convenience script to run spark-submit inside the container
-│  │
-│  ├─ trending-indexer/
-│  │  ├─ Dockerfile            # python:slim or node:alpine
-│  │  ├─ indexer.py            # **YOU**: Kafka consumer → transform → index docs to OpenSearch (bulk API)
-│  │  └─ mappings/             # optional: keep index mappings/settings versions here
-│  │
-│  └─ baseline-batch/
-│     ├─ Dockerfile            # spark job image for batch baseline builds
-│     ├─ job.py                # **YOU**: pulls AQS pageviews + historical Parquet → compute μ/σ per (wiki,title,hod,dow)
-│     └─ requirements.txt
-│
-├─ scripts/
-│  ├─ create_indices.sh        # bootstrap OpenSearch indices & templates
-│  ├─ seed_baselines.sh        # run the first baseline-batch job
-│  └─ wait-for.sh              # generic wait helper (optional)
-│
-├─ lake/                       # mounted volume for Parquet (batch layer)
-├─ data/                       # if you want to store small samples locally
-└─ README.md                   # quickstart & runbook for your graders
-```
-
-## 2) Component roles (at a glance)
-
-* **`sse-ingestor/app.py`** — Connects to `https://stream.wikimedia.org/v2/stream/recentchange` (SSE), parses JSON events, applies lightweight hygiene (timestamps, nulls, keep fields you need), and produces to Kafka `wikimedia.recentchange.raw` with keys like `(wiki|title)` or `(wiki|rev_id)`.
-* **`stream-aggregator/main.py`** — Spark Structured Streaming job: reads raw topic, optional filters (`bot`, `minor`, namespaces), computes **windowed aggregates** (1m/5m sliding) per `(wiki,title)`; calculates metrics (edit_count, unique_editors, sum_abs_delta, editor_entropy, revert_count) and a **trend score** (z-score / composite). Writes results to `trending.windows.{1m,5m}` and a cleaned stream to `wikimedia.recentchange.clean`.
-* **`trending-indexer/indexer.py`** — Lightweight consumer that bulk-indexes each window’s top-N to OpenSearch indices `trending-1m`, `trending-5m` with fields you’ll visualize (scores, metrics JSON, page URL, language, ts_bucket).
-* **`baseline-batch/job.py`** — Batch job (run daily or on demand) that reads historical Parquet from `/lake`, calls AQS pageviews for context, and writes a **baseline table** (μ/σ per `(wiki,title, hour-of-day, weekday)`) back to `/lake`. Your streaming job can join/lookup these stats.
-* **`conf/opensearch/index-templates/*.json`** — Mappings/settings for indices (number/date formats, keyword vs text, refresh interval, ILM if you want).
-* **`conf/grafana/dashboards/trending.json`** — Prebuilt dashboard (Top-20 global & per-lang; sparklines for the last 30–60 min; per-metric panels).
-
----
-
-## 3) Quick Start
-
-### Prerequisites
-- Docker Desktop (Windows/Mac) or Docker Engine + Docker Compose (Linux)
-- Minimum 8GB RAM available for containers
-- Ports available: 3000, 5601, 7077, 8080, 8085, 9000, 9092, 9200, 9870, 16010
-
-### Start the Pipeline
-
-1. **Clone and navigate to the project:**
-   ```bash
-   cd Trandings
-   ```
-
-2. **Start all services:**
-   ```bash
-   docker compose up -d --build
-   ```
-   
-   This will start:
-   - Infrastructure: Kafka, ZooKeeper, Spark (master + worker), HDFS, HBase, OpenSearch
-   - Applications: sse-ingestor, stream-aggregator, trending-indexer
-   - Dashboards: Grafana, OpenSearch Dashboards
-
-3. **Wait for services to be healthy (~2-3 minutes):**
-   ```bash
-   docker compose ps
-   ```
-   All services should show "Up" or "Healthy" status.
-
-4. **Verify data is flowing:**
-   ```bash
-   # Check raw events from Wikimedia
-   docker compose exec kafka bash -lc 'kafka-console-consumer --bootstrap-server kafka:9092 --topic wikimedia.recentchange.raw --from-beginning --max-messages 5'
-   
-   # Check windowed aggregates
-   docker compose exec kafka bash -lc 'kafka-console-consumer --bootstrap-server kafka:9092 --topic trending.windows.1m --from-beginning --max-messages 3'
-   
-   # Check indexed data
-   curl -s "http://localhost:9200/_cat/indices/trending-*?v"
-   ```
-
-5. **Access dashboards:**
-   - **Grafana:** http://localhost:3000 → Dashboards → Trending → Wikimedia Trending Topics
-   - **OpenSearch Dashboards:** http://localhost:5601 (requires index pattern setup)
-
-### Stop the Pipeline
-```bash
-docker compose down
-```
-
-To remove all data:
-```bash
-docker compose down -v
-```
-
-### Monitoring & Admin UIs
-
-| Service | URL | Purpose |
-|---------|-----|----------|
-| **Grafana** | http://localhost:3000 | Real-time trending dashboards |
-| **OpenSearch Dashboards** | http://localhost:5601 | Data exploration & custom visualizations |
-| **Spark Master UI** | http://localhost:8080 | Spark cluster status & running jobs |
-| **HDFS NameNode UI** | http://localhost:9870 | HDFS cluster status |
-| **HBase Master UI** | http://localhost:16010 | HBase cluster status |
-| **OpenSearch API** | http://localhost:9200 | Direct API access |
-| **Kafka** | localhost:29092 | Kafka broker (use `kcat` or similar tools) |
-
----
-
-## 4) Implementation Status & Known Issues
-
-### ✅ Working Components (75%)
-
-#### 1. sse-ingestor ✅ FULLY FUNCTIONAL
-- **Status:** Operational
-- **Function:** Ingests live Wikipedia edit events from Wikimedia SSE stream
-- **Output:** Produces to `wikimedia.recentchange.raw` Kafka topic
-- **Performance:** Real-time streaming, no lag
-
-#### 2. stream-aggregator ✅ FULLY FUNCTIONAL  
-- **Status:** Operational (after HDFS checkpoint fix)
-- **Function:** Spark Structured Streaming job computing windowed aggregations
-- **Outputs:** 
-  - `wikimedia.recentchange.clean` - Enriched events with bytes_delta
-  - `trending.windows.1m` - 1-minute windowed aggregates
-  - `trending.windows.5m` - 5-minute windowed aggregates
-- **Metrics Computed:**
-  - Trending score (composite: edits + editors + bytes - bots)
-  - Edit count, unique editors, bytes changed
-  - Bot/minor edit ratios, revert counts
-- **Fix Applied:** Changed checkpoint storage from local Docker volume to HDFS for distributed state management
-
-#### 3. trending-indexer ✅ FULLY FUNCTIONAL
-- **Status:** Operational (after Dockerfile fix)
-- **Function:** Kafka consumer indexing trending data to OpenSearch
-- **Indices:** `trending-1m` (5.4k docs), `trending-5m` (14k docs)
-- **Features:** Deduplication, URL generation, batch indexing
-- **Fix Applied:** Corrected Dockerfile to use Python image instead of Spark, fixed entry point
-
-### ⚠️ Partial Components (25%)
-
-#### 4. hbase-writer ⚠️ PARTIAL - API COMPATIBILITY ISSUE
-- **Status:** Container running but writes failing
-- **Issue:** HBase REST API (harisekhon/hbase:2.1) doesn't support expected JSON format
-- **Error:** HTTP 405 (Method Not Allowed) on PUT/POST operations
-- **Impact:** Non-critical - OpenSearch serves as primary storage
-- **Workaround Options:**
-  - Use HBase Thrift API instead of REST
-  - Replace with compatible HBase image
-  - Use alternative storage (Cassandra, ScyllaDB)
-  - Skip HBase (OpenSearch sufficient for analytics)
-
-### 📝 Key Fixes Applied
-
-1. **Spark Checkpoint Storage (stream-aggregator)**
-   - **Problem:** State stores on local volume unreachable by Spark workers
-   - **Solution:** Moved checkpoints to HDFS (`hdfs://hadoop-namenode:9000/checkpoints/stream-agg`)
-   - **Files Changed:** 
-     - `apps/stream-aggregator/main.py`
-     - `docker-compose.yml` (added hadoop-namenode dependency)
-
-2. **Trending Indexer Dockerfile (trending-indexer)**
-   - **Problem:** Wrong base image and entry point file name
-   - **Solution:** Use Python slim image, correct entry point to `indexer.py`
-   - **File Changed:** `apps/trending-indexer/Dockerfile`
-
-3. **Grafana OpenSearch Plugin**
-   - **Problem:** Plugin not installed by default
-   - **Solution:** Install `grafana-opensearch-datasource` plugin on first run
-   - **File Changed:** `conf/grafana/provisioning/datasources/opensearch.yml`
-
----
-## 5) Architecture & Data Flow
-
-```
-Wikimedia SSE Stream
-        ↓
-   sse-ingestor ✅
-        ↓
-  [Kafka] wikimedia.recentchange.raw
-        ↓
-  stream-aggregator ✅
-   (Spark Streaming)
-        ↓ ↓ ↓
-        ↓ ↓ └→ [Kafka] trending.windows.5m
-        ↓ └──→ [Kafka] trending.windows.1m  
-        └────→ [Kafka] wikimedia.recentchange.clean
-             ↓ ↓
-             ↓ └─────────────┐
-             ↓               ↓
-      trending-indexer ✅  hbase-writer ⚠️
-             ↓               ↓
-        [OpenSearch]    [HBase - API issue]
-     trending-1m: 5.4k docs
-     trending-5m: 14k docs
-             ↓
-        ┌────┴────┐
-        ↓         ↓
-    Grafana  OpenSearch
-  (Dashboard) Dashboards
-```
-
-### Technologies Used
-
-| Component | Technology | Version | Purpose |
-|-----------|-----------|---------|----------|
-| **Streaming** | Apache Kafka | 7.6.1 | Event streaming platform |
-| **Processing** | Apache Spark | 3.5.3 | Distributed stream processing |
-| **Storage** | OpenSearch | 2.14.0 | Search & analytics engine |
-| **Storage** | HDFS | 3.2.1 | Distributed file system (checkpoints) |
-| **Storage** | HBase | 2.1 | NoSQL database (partial) |
-| **Visualization** | Grafana | 10.4.3 | Dashboarding |
-| **Visualization** | OpenSearch Dashboards | 2.14.0 | Data exploration |
-| **Coordination** | ZooKeeper | latest | Service coordination |
-
----
-
-## 6) Environment knobs (tune for your demo)
-
-* **Kafka partitions**: start with 3; bump to 6 if you see lag.
-* **Spark**: worker cores/memory set in compose; adjust to match your laptop/VM.
-* **OpenSearch**: for faster UI, set index `refresh_interval` to `5-10s` and map numerics properly (scores as `float`).
-* **Latency target**: end-to-end < 60s with 10s slide windows is very achievable.
-
----
-
-## 7) Project Deliverables
-
-### ✅ Real-Time Data Collection
-- **Component:** `sse-ingestor` + Apache Kafka
-- **Status:** Fully operational
-- **Implementation:** SSE client consuming Wikimedia event stream, producing to Kafka topics
-- **Verification:** 19,500+ events processed and indexed
-
-### ✅ Real-Time Processing
-- **Component:** `stream-aggregator` (Spark Structured Streaming)
-- **Status:** Fully operational
-- **Implementation:** 
-  - Windowed aggregations (1-minute, 5-minute)
-  - Trending score calculation
-  - Event-time watermarking (2-minute watermark)
-  - HDFS-backed checkpoints for fault tolerance
-- **Metrics:** Edit count, unique editors, bytes changed, bot/minor ratios, revert counts
-
-### ⚠️ Batch Processing  
-- **Component:** `baseline-batch`
-- **Status:** Not implemented (out of scope for current demo)
-- **Original Intent:** Compute historical baselines (μ/σ) from pageview data
-- **Alternative:** Current implementation uses real-time scoring without historical baselines
-
-### ✅ NoSQL Databases
-- **Primary:** OpenSearch (fully functional)
-  - `trending-1m` index: 5,400+ documents
-  - `trending-5m` index: 14,000+ documents
-  - Sub-second query performance
-  - Full-text search and aggregations
-- **Secondary:** HBase (partial - API compatibility issue)
-  - Container running but writes failing
-  - Non-critical for demo
-
-### ✅ Visualization & Demo
-- **Grafana:** Pre-configured real-time dashboard
-  - Top-20 trending pages table
-  - Score over time visualization
-  - Interactive page selection
-- **OpenSearch Dashboards:** Custom visualization support
-  - Index pattern configured
-  - Discover interface for data exploration
-- **Spark UI:** Job monitoring and performance metrics
-- **Live Demo:** All components running with real data
-
-### 📊 Performance Metrics
-- **End-to-end latency:** < 60 seconds (ingestion to visualization)
-- **Throughput:** Processes 100s of events/second from all Wikimedia wikis
-- **Data volume:** 19,500+ documents indexed in first hour
-- **Uptime:** Continuous processing with automatic restarts
-
----
-
-## 8) Acknowledgments & References
-
-- **Data Source:** [Wikimedia EventStreams](https://stream.wikimedia.org/)
-- **Architecture Inspiration:** Kappa Architecture for real-time + batch processing
-- **Technologies:** Apache Software Foundation projects (Kafka, Spark, Hadoop)
-- **OpenSearch:** Fork of Elasticsearch/Kibana by Amazon
----
-
-## 🚀 Getting Started (TL;DR)
+You need Docker with Compose v2 and about 8 GB of RAM for containers.
 
 ```bash
-# Start everything
-docker compose up -d --build
-
-# Wait ~2 minutes for services to be ready
-docker compose ps
-
-# Verify data is flowing
-curl "http://localhost:9200/_cat/indices/trending-*?v"
-
-# Open dashboards
-# Grafana: http://localhost:3000
-# OpenSearch Dashboards: http://localhost:5601
+cp .env.example .env            # optional: put your contact in USER_AGENT, add a webhook
+docker compose up -d --build    # first run downloads images: allow a few minutes
+./scripts/smoke-test.sh         # waits until data flows end to end (2 to 4 min)
 ```
 
+Open **http://localhost:8000**.
+
+Everything is set up automatically: Kafka topics, OpenSearch templates and retention, the
+Grafana plugin and dashboard, and the HBase table. Stop the stack with `docker compose down`,
+or wipe all its data with `docker compose down -v`.
+
+## What you get
+
+| Section | What it shows |
+|---|---|
+| **Lead** | The strongest signal right now. A topic surging in several languages leads when there is one; otherwise the biggest single-page spike. |
+| **Also surfacing** | The next stories or spikes. |
+| **Vitals** | Human edits per minute, active pages and wikis, pages spiking, and the delay from an edit to your screen. |
+| **Trending pages** | Top 25 pages by trending score, with sparklines, rank changes and badges: *New page*, *Spike* (z ≥ 3), *Contested* (2+ reverts in a minute), *N languages*. Export to CSV. |
+| **Page view** | Click any page: Wikipedia summary, **what changed** (the latest edit's diff with author, summary and size, plus older/newer navigation), edit and z-score charts, and a shareable link. |
+| **Alerts** | Spikes and multi-language stories from the last 24 h. Optional browser notifications and Slack/Discord posts. |
+| **Bot activity** | Bot share of edits, humans vs. bots over time, the most active bots, the most automated wikis. |
+
+Other details:
+- Non-English pages show their English title when an English article exists (switchable).
+- Filters (window size, period, wiki, title search) live in the URL, so any view can be shared.
+- Light and dark themes; works on phones.
+
+Other UIs, for the curious:
+
+| URL | What |
+|---|---|
+| http://localhost:8000/api/docs | The API behind the radar (OpenAPI) |
+| http://localhost:3000 | Grafana dashboard |
+| http://localhost:5601 | OpenSearch Dashboards |
+| http://localhost:8080 | Spark |
+| http://localhost:9870 | HDFS |
+| http://localhost:16010 | HBase |
+
+## Alerts
+
+An alert fires when either of these happens:
+
+- **Spike:** a page's z-score reaches `ALERT_MIN_Z` (default 5) with at least
+  `ALERT_MIN_EDITORS` (default 2) different editors in one minute.
+- **Story:** one topic surges in at least `ALERT_MIN_LANGUAGES` (default 3) language editions.
+
+Each topic alerts at most once per `ALERT_COOLDOWN_MINUTES` (default 60), even across restarts.
+
+To get alerts in chat, create an *incoming webhook* in Slack or Discord and put its URL in `.env`:
+
+```bash
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/...   # or a Discord webhook URL
+PUBLIC_UI_URL=http://your-host:8000                       # link included in each message
+```
+
+Then run `docker compose up -d trending-ui`. For alerts in your browser, click **Notify me**
+in the Alerts panel.
+
+## How it works
+
+```
+Wikimedia EventStreams
+        │  every edit, every wiki (Server-Sent Events)
+        ▼
+  sse-ingestor ──▶ Kafka: recentchange.raw
+                          │
+                          ▼
+              Spark stream-aggregator ──▶ Kafka: recentchange.clean ──▶ baseline-batch (Spark, every 6 h)
+               1-min and 5-min windows                                     │ normal edit rate per page
+               score + z-score   ◀───────────── HDFS baselines ◀───────────┘
+                          │
+                          ▼
+              Kafka: trending windows, bot accounts
+                 │                        │
+                 ▼                        ▼
+        trending-indexer            hbase-writer
+                 │                        │
+                 ▼                        ▼
+            OpenSearch               HBase (90-day history)
+                 │
+                 ▼
+   trending-ui: radar, stories, alerts, diffs (+ Grafana, OpenSearch Dashboards)
+```
+
+| Service | Job |
+|---|---|
+| `sse-ingestor` | Streams Wikimedia edits into Kafka, keyed by page. Resumes where it left off after a restart. |
+| `stream-aggregator` | Spark Structured Streaming. Counts edits, editors, bytes, reverts and page creations per page in sliding windows (1 min every 30 s, 5 min every 60 s), separately for humans and bots, and scores each window against the page's baseline. |
+| `baseline-batch` | Spark batch job. Learns each page's normal hourly edit rate from the last 72 h of history and publishes it for the stream, which picks it up without restarting. |
+| `trending-indexer` | Writes windows to daily OpenSearch indices. Safe to replay: a window is always the same document. |
+| `hbase-writer` | Keeps 90 days of per-page window history in HBase. |
+| `trending-ui` | The radar page and its API. Groups pages into stories, looks up English titles, runs the alert engine. |
+| `*-init` services | One-shot setup jobs. They are safe to re-run. |
+
+### How "trending" is decided
+
+For each page and window:
+
+```
+activity = edits + 1.5·(editors − 1) + 0.25·ln(1 + bytes changed) + [page created] − reverts
+z        = (edits − expected) / σ        expected and σ come from the page's own baseline
+score    = activity + 0.5 · clamp(z, 0, 20)
+```
+
+- **More people beats more edits:** each additional editor counts more than another edit by
+  the same person.
+- **Size barely matters:** one huge edit can't outrank a page many people are editing.
+- **z rewards the unusual:** a page busier than *it* normally is scores higher. A page with no
+  baseline yet is compared against zero.
+- **Stories** group pages by their Wikidata item, so the German, French and Spanish articles on the
+  same earthquake count as one topic.
+- **Sliding windows overlap:** each edit appears in two 1-minute windows (or five 5-minute ones).
+  Totals are computed per window end time, or divided by the overlap, never naively summed.
+
+## Configuration
+
+Every setting has a default. See `.env.example` for the full list.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `USER_AGENT` | (set in compose) | Sent to Wikimedia, whose policy requires contact details. Use your own. |
+| `NAMESPACES` | `0` | Which namespaces count (0 = articles). |
+| `TRACK_BOTS` | `true` | Aggregate bot edits for the bot section. They never count toward trending. |
+| `RETENTION_DAYS` | `7` | How long OpenSearch keeps window data and alerts. |
+| `BASELINE_INTERVAL_HOURS` | `6` | How often baselines are recomputed. |
+| `ALERT_*`, `PUBLIC_UI_URL` | see [Alerts](#alerts) | Alert thresholds and delivery. |
+| `SPARK_WORKER_MEMORY` / `_CORES` | `3G` / `3` | Size of the Spark worker. Lower it on small machines. |
+
+Which wikis are ingested is set in `apps/sse-ingestor/config.yml`.
+
+## Everyday commands
+
+```bash
+docker compose ps                                          # what's running
+docker compose logs -f stream-aggregator                   # follow one service
+docker compose run --rm -e RUN_ONCE=true baseline-batch    # compute baselines now
+docker compose restart trending-ui                         # after changing alert settings
+```
+
+| Problem | Check |
+|---|---|
+| The page says "Waiting for data" for more than 3 minutes | `docker compose logs sse-ingestor` should say `connected to https://stream.wikimedia.org/...`. |
+| No z-scores | Baselines need history. The first scheduled run is 60 minutes after start; run it now with the command above. |
+| A container keeps restarting | Docker may be short of memory. Set `SPARK_WORKER_MEMORY=2G` in `.env`. |
+| Stories are empty | Normal in quiet hours. Overlap between languages mostly happens around real news. |
+
+## Development
+
+```bash
+uv sync --group dev
+uv run ruff check .
+uv run pytest
+```
+
+The logic of each service lives in small modules with unit tests in `tests/`:
+- event filtering;
+- document ids and HBase row keys;
+- scoring queries;
+- story grouping;
+- alert rules;
+- title lookups.
+
+CI runs lint, tests, a compose check and image builds on every push. A manual run can also start
+the whole stack and run the smoke test.
+
+```
+apps/
+  sse-ingestor/        Wikimedia → Kafka (filters in config.yml)
+  stream-aggregator/   Spark streaming job
+  baseline-batch/      Spark batch job + scheduler
+  trending-indexer/    Kafka → OpenSearch
+  hbase-writer/        Kafka → HBase
+  trending-ui/         API, stories, alerts, English titles, static/ (the radar page)
+  bootstrap/           OpenSearch and Dashboards setup jobs
+conf/                  Kafka topics, OpenSearch templates and retention, Grafana
+scripts/               smoke-test.sh
+tests/
+```
+
+## Design notes and limits
+
+- **Wikidata is not ingested.** Its items are titled by id ("Q56876694"), and most of its bulk
+  editing comes from human accounts using batch tools, which no bot filter catches. In a sample
+  it was ~24% of all edits. Remove it from `exclude_wikis` in `apps/sse-ingestor/config.yml` to
+  include it.
+- **Bots make about a third of article edits** (44% of all edits in a 45-second sample across
+  every namespace). They are tracked in their own section and never affect trending, baselines or
+  alerts.
+- **English titles and Wikidata ids** are looked up from each wiki's API by `trending-ui`, cached
+  for hours, and batched 50 titles per request. Search still matches original titles.
+- **Diffs** are fetched by your browser straight from the wiki's public API. The returned HTML is
+  rebuilt from text, never inserted as markup.
+- **Security:** this is a local stack. OpenSearch runs without its security plugin, Grafana allows
+  anonymous viewers, and all ports are published. Put it behind authentication before exposing it.
+
+### Upgrading from v1
+
+- The compose project is now called `wikitrends`, so v1 volumes are left untouched.
+- Spark checkpoints moved to `checkpoints/stream-agg-v3`.
+- `opensearch-init` migrates an old `trending-1m` / `trending-5m` index automatically and adds new
+  fields to existing indices, so no reset is needed.
+
+---
+
+Data comes from [Wikimedia EventStreams](https://stream.wikimedia.org/?doc) and each wiki's public
+API. Article text belongs to its authors under the wiki's license.
