@@ -1,18 +1,384 @@
 {
+  "uid": "wikitrends-main",
+  "title": "Wikimedia Trending Topics",
+  "description": "Live trending Wikipedia pages. For the richer interactive view open the WikiTrends UI at http://localhost:8000.",
+  "tags": [
+    "wikimedia",
+    "trending"
+  ],
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "schemaVersion": 39,
+  "version": 2,
+  "links": [
+    {
+      "title": "WikiTrends UI",
+      "type": "link",
+      "url": "http://localhost:8000",
+      "targetBlank": true,
+      "icon": "external link"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "wiki",
+        "label": "Wiki",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-opensearch-datasource",
+          "uid": "opensearch-1m"
+        },
+        "query": "{\"find\": \"terms\", \"field\": \"wiki\", \"size\": 200}",
+        "includeAll": true,
+        "allValue": "*",
+        "multi": false,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
   "annotations": {
     "list": []
   },
-  "editable": true,
-  "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
-  "id": null,
-  "links": [],
-  "liveNow": false,
   "panels": [
     {
+      "id": 1,
+      "type": "stat",
+      "title": "Edits per minute",
+      "description": "Average over the time range. Each point is the sum of one 1-minute window across all pages (no double counting).",
       "datasource": {
         "type": "grafana-opensearch-datasource",
-        "uid": "opensearch-trending"
+        "uid": "opensearch-1m"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2a78d6"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-1m"
+          },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "sum",
+              "field": "edit_count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "ts_bucket",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0",
+                "trimEdges": "1"
+              }
+            }
+          ],
+          "alias": ""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Pages edited per minute",
+      "description": "Distinct pages per 1-minute window, averaged.",
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-1m"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2a78d6"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-1m"
+          },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "cardinality",
+              "field": "page_key"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "ts_bucket",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0",
+                "trimEdges": "1"
+              }
+            }
+          ],
+          "alias": ""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Peak z-score",
+      "description": "Highest z-score (edits vs. the page's own baseline) seen in the range.",
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-1m"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "max"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2a78d6"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-1m"
+          },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "max",
+              "field": "z_score"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "ts_bucket",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0",
+                "trimEdges": "1"
+              }
+            }
+          ],
+          "alias": ""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Spiking pages per minute",
+      "description": "Distinct pages with z-score >= 3 per window, averaged.",
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-1m"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2a78d6"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-1m"
+          },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot AND z_score:>=3",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "cardinality",
+              "field": "page_key"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "ts_bucket",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0",
+                "trimEdges": "1"
+              }
+            }
+          ],
+          "alias": ""
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Top 20 trending pages: 1-minute windows",
+      "description": "Ranked by peak trending score in the selected range. Click column headers to re-sort.",
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-1m"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Peak score",
+            "desc": true
+          }
+        ]
       },
       "fieldConfig": {
         "defaults": {
@@ -20,61 +386,118 @@
             "align": "auto",
             "cellOptions": {
               "type": "auto"
-            },
-            "inspect": false
+            }
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak score"
+            },
+            "properties": [
               {
-                "color": "green",
-                "value": null
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#2a78d6"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak z-score"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "#fab219",
+                      "value": 3
+                    },
+                    {
+                      "color": "#d03b3b",
+                      "value": 6
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak edits"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak editors"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           }
-        },
-        "overrides": []
+        ]
       },
-      "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": ["sum"],
-          "show": false
-        },
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "10.4.3",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "title.keyword": "Page",
+              "wiki": "Wiki",
+              "Max score": "Peak score",
+              "Max z_score": "Peak z-score",
+              "Max edit_count": "Peak edits",
+              "Max unique_editors": "Peak editors"
+            }
+          }
+        }
+      ],
       "targets": [
         {
-          "alias": "",
-          "bucketAggs": [
-            {
-              "field": "title.keyword",
-              "id": "2",
-              "settings": {
-                "min_doc_count": "1",
-                "order": "desc",
-                "orderBy": "_term",
-                "size": "20"
-              },
-              "type": "terms"
-            }
-          ],
           "datasource": {
             "type": "grafana-opensearch-datasource",
-            "uid": "opensearch-trending"
+            "uid": "opensearch-1m"
           },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
           "metrics": [
             {
               "id": "1",
@@ -84,116 +507,97 @@
             {
               "id": "3",
               "type": "max",
-              "field": "edit_count"
+              "field": "z_score"
             },
             {
               "id": "4",
               "type": "max",
+              "field": "edit_count"
+            },
+            {
+              "id": "5",
+              "type": "max",
               "field": "unique_editors"
             }
           ],
-          "query": "*",
-          "refId": "A",
-          "timeField": "ts_bucket"
+          "bucketAggs": [
+            {
+              "id": "6",
+              "type": "terms",
+              "field": "wiki",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "50"
+              }
+            },
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "title.keyword",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "20"
+              }
+            }
+          ],
+          "alias": ""
         }
-      ],
-      "title": "Top 20 Trending Pages (1-minute windows)",
-      "type": "table"
+      ]
     },
     {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Edits per minute (all wikis)",
       "datasource": {
         "type": "grafana-opensearch-datasource",
-        "uid": "opensearch-trending"
+        "uid": "opensearch-1m"
+      },
+      "description": "Sum of edit_count per 1-minute window end. Uses one bucket per window slide, so overlapping windows are not double counted.",
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#2a78d6"
           },
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
+          "unit": "short",
+          "displayName": "Edits per minute"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 12
-      },
-      "id": 2,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
-          "mode": "single",
-          "sort": "none"
+          "mode": "single"
         }
       },
       "targets": [
         {
-          "alias": "",
-          "bucketAggs": [
-            {
-              "field": "ts_bucket",
-              "id": "2",
-              "settings": {
-                "interval": "30s",
-                "min_doc_count": "0",
-                "trimEdges": "0"
-              },
-              "type": "date_histogram"
-            }
-          ],
           "datasource": {
             "type": "grafana-opensearch-datasource",
-            "uid": "opensearch-trending"
+            "uid": "opensearch-1m"
           },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
           "metrics": [
             {
               "id": "1",
@@ -201,29 +605,311 @@
               "field": "edit_count"
             }
           ],
-          "query": "*",
-          "refId": "A",
-          "timeField": "ts_bucket"
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "ts_bucket",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0",
+                "trimEdges": "1"
+              }
+            }
+          ],
+          "alias": ""
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Busiest wikis (edits in range, 5-min windows ÷ 5)",
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-5m"
+      },
+      "description": "Sum of 5-minute windows sliding every minute counts each edit 5 times; the value is divided by 5.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "minVizHeight": 10,
+        "namePlacement": "left"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2a78d6"
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Sum edit_count",
+              "operator": "/",
+              "right": "5"
+            },
+            "alias": "Edits",
+            "replaceFields": true
+          }
         }
       ],
-      "title": "Total Edits Over Time",
-      "type": "timeseries"
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-5m"
+          },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "sum",
+              "field": "edit_count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "wiki",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "10"
+              }
+            }
+          ],
+          "alias": ""
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Top 20 trending pages: 5-minute windows",
+      "description": "Slower-moving view: sustained activity over 5-minute windows.",
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "opensearch-5m"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Peak score",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak score"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#2a78d6"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak z-score"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "#fab219",
+                      "value": 3
+                    },
+                    {
+                      "color": "#d03b3b",
+                      "value": 6
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak edits"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak editors"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "title.keyword": "Page",
+              "wiki": "Wiki",
+              "Max score": "Peak score",
+              "Max z_score": "Peak z-score",
+              "Max edit_count": "Peak edits",
+              "Max unique_editors": "Peak editors"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "opensearch-5m"
+          },
+          "refId": "A",
+          "query": "wiki:$wiki AND NOT actor:bot",
+          "queryType": "lucene",
+          "timeField": "ts_bucket",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "max",
+              "field": "score"
+            },
+            {
+              "id": "3",
+              "type": "max",
+              "field": "z_score"
+            },
+            {
+              "id": "4",
+              "type": "max",
+              "field": "edit_count"
+            },
+            {
+              "id": "5",
+              "type": "max",
+              "field": "unique_editors"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "6",
+              "type": "terms",
+              "field": "wiki",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "50"
+              }
+            },
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "title.keyword",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "20"
+              }
+            }
+          ],
+          "alias": ""
+        }
+      ]
     }
-  ],
-  "refresh": "10s",
-  "schemaVersion": 39,
-  "tags": ["trending", "wikipedia"],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-15m",
-    "to": "now"
-  },
-  "timepicker": {},
-  "timezone": "browser",
-  "title": "Wikimedia Trending Topics",
-  "uid": "trending-wikimedia",
-  "version": 1,
-  "weekStart": ""
+  ]
 }

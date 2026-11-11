@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>WikiTrends Radar</title>
+  <meta name="description" content="See what is happening in the world from how Wikipedia is being edited, live, in every language.">
+  <script>
+    try {
+      const t = localStorage.getItem("wt-theme");
+      if (t === "light" || t === "dark") document.querySelector('meta[name="color-scheme"]').content = t;
+    } catch {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F1A2B'/%3E%3Cpath d='M4 19h5l3-9 4 14 3-8 2 3h7' stroke='%23F0A93A' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/app.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#trending">Skip to trending pages</a>
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="WikiTrends home">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><path d="M4 19h5l3-9 4 14 3-8 2 3h7"/></svg>
+      <span class="brand-name">WikiTrends</span>
+    </a>
+    <nav class="sections" aria-label="Sections">
+      <a href="#stories">Stories</a>
+      <a href="#trending">Trending</a>
+      <a href="#alerts">Alerts <span class="nav-count" id="nav-alerts" hidden></span></a>
+      <a href="#bots">Bots</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="status" class="status" data-state="idle" role="status">
+        <span class="status-dot" aria-hidden="true"></span><span class="status-text">Connecting</span>
+      </span>
+      <label class="theme">
+        <span class="visually-hidden">Color theme</span>
+        <select id="theme">
+          <option value="system">System theme</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <form class="filters" id="filters" role="search" aria-label="Filter what the radar shows">
+      <fieldset class="segmented">
+        <legend class="visually-hidden">Window size</legend>
+        <label><input type="radio" name="window" value="1m" checked><span>1-min windows</span></label>
+        <label><input type="radio" name="window" value="5m"><span>5-min windows</span></label>
+      </fieldset>
+      <label class="field">
+        <span>Period</span>
+        <select name="minutes">
+          <option value="10">Last 10 min</option>
+          <option value="30">Last 30 min</option>
+          <option value="60">Last hour</option>
+          <option value="180">Last 3 hours</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Wiki</span>
+        <select name="wiki" id="wiki-select"><option value="">All wikis</option></select>
+      </label>
+      <label class="field grow">
+        <span>Search titles</span>
+        <input type="search" name="q" placeholder="election, earthquake, final…" autocomplete="off"
+               title="Matches titles in their original language">
+      </label>
+      <label class="switch" title="Show the English Wikipedia title when an English article on the same topic exists">
+        <input type="checkbox" id="english" role="switch" checked>
+        <span class="switch-track" aria-hidden="true"></span>
+        <span>English titles</span>
+      </label>
+      <button type="button" id="pause" class="btn" aria-pressed="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="icon-pause"><rect x="3" y="2" width="3.5" height="12" rx="1"/><rect x="9.5" y="2" width="3.5" height="12" rx="1"/></svg>
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="icon-play"><path d="M4 2.5v11l9-5.5z"/></svg>
+        <span class="label">Pause</span>
+      </button>
+    </form>
+
+    <!-- Lead: the strongest signal right now -->
+    <section class="radar" id="stories" aria-labelledby="lead-title">
+      <article class="lead" id="lead" aria-live="polite">
+        <p class="lead-kicker" id="lead-kicker">Listening to Wikipedia…</p>
+        <h1 class="lead-title" id="lead-title">Waiting for the first edits</h1>
+        <p class="lead-why" id="lead-why">The radar fills a minute or two after the pipeline starts.</p>
+        <ul class="editions" id="lead-editions" aria-label="Language editions"></ul>
+        <div class="lead-trace" id="lead-trace" aria-hidden="true"></div>
+      </article>
+      <aside class="also" aria-labelledby="also-title">
+        <h2 id="also-title">Also surfacing</h2>
+        <ol class="also-list" id="also-list"></ol>
+        <p class="also-note muted" id="also-note"></p>
+      </aside>
+    </section>
+
+    <section class="vitals" aria-label="Pipeline vitals">
+      <div><span class="v-value" id="kpi-rate">–</span><span class="v-label">human edits per minute</span></div>
+      <div><span class="v-value" id="kpi-pages">–</span><span class="v-label">pages edited in 5 min</span></div>
+      <div><span class="v-value" id="kpi-wikis">–</span><span class="v-label">active wikis</span></div>
+      <div><span class="v-value" id="kpi-spikes">–</span><span class="v-label">pages spiking now</span></div>
+      <div><span class="v-value" id="kpi-latency">–</span><span class="v-label" id="kpi-latency-note">from edit to screen</span></div>
+    </section>
+
+    <div class="layout">
+      <section class="panel board" id="trending" aria-labelledby="board-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="board-title">Trending pages</h2>
+            <p class="muted small" id="board-sub">Ranked by peak trending score</p>
+          </div>
+          <button type="button" class="btn btn-quiet" id="export">Download CSV</button>
+        </div>
+        <div class="table-wrap" tabindex="0" role="region" aria-labelledby="board-title">
+          <table class="board-table">
+            <thead>
+              <tr>
+                <th scope="col" class="c-rank">#</th>
+                <th scope="col" class="c-page">Page</th>
+                <th scope="col" class="c-spark">Edits over period</th>
+                <th scope="col" class="c-num">Edits<span class="th-sub">peak window</span></th>
+                <th scope="col" class="c-num c-editors">Editors</th>
+                <th scope="col" class="c-num c-z" title="How unusual the edit rate is for this page: standard deviations above its own normal rate">z-score</th>
+                <th scope="col" class="c-score">Score</th>
+              </tr>
+            </thead>
+            <tbody id="board-body"></tbody>
+          </table>
+          <div class="empty" id="board-empty" hidden>
+            <p class="empty-title">No pages match</p>
+            <p class="muted small" id="board-empty-text"></p>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <section class="panel" id="alerts" aria-labelledby="alerts-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="alerts-title">Alerts</h2>
+              <p class="muted small" id="alerts-sub">Spikes and stories, last 24 hours</p>
+            </div>
+            <button type="button" class="btn btn-quiet" id="notify" hidden>Notify me</button>
+          </div>
+          <ol class="alert-list" id="alert-list"></ol>
+          <p class="muted small alerts-hint" id="alerts-hint"></p>
+        </section>
+        <section class="panel" aria-labelledby="timeline-title">
+          <div class="panel-head">
+            <h2 id="timeline-title">Edit volume</h2>
+            <p class="muted small" id="timeline-sub">Human edits per window</p>
+          </div>
+          <div class="chart" id="timeline-chart"></div>
+        </section>
+        <section class="panel" aria-labelledby="wikis-title">
+          <div class="panel-head">
+            <h2 id="wikis-title">Busiest wikis</h2>
+            <p class="muted small">Edits per minute. Click to filter.</p>
+          </div>
+          <ol class="bars" id="wiki-bars"></ol>
+        </section>
+      </aside>
+    </div>
+
+    <section class="panel bots" id="bots" aria-labelledby="bots-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="bots-title">Bot activity</h2>
+          <p class="muted small">Edits by bot-flagged accounts. They never count toward trending.</p>
+        </div>
+        <p class="muted small" id="bots-sub"></p>
+      </div>
+      <div class="bot-stats">
+        <div><span class="bs-value" id="bots-rate">–</span><span class="bs-label">bot edits per minute</span></div>
+        <div><span class="bs-value" id="bots-share">–</span><span class="bs-label">of all edits are by bots</span></div>
+        <div><span class="bs-value" id="bots-active">–</span><span class="bs-label">active bot accounts</span></div>
+      </div>
+      <div class="bots-grid">
+        <section class="bots-chart" aria-labelledby="bots-chart-title">
+          <div class="sub-head">
+            <h3 id="bots-chart-title">Edits per minute, humans and bots</h3>
+            <ul class="legend" aria-label="Legend">
+              <li><span class="swatch s1" aria-hidden="true"></span>Humans</li>
+              <li><span class="swatch s2" aria-hidden="true"></span>Bots</li>
+            </ul>
+          </div>
+          <div class="chart" id="bots-chart"></div>
+        </section>
+        <section aria-labelledby="bot-accounts-title">
+          <h3 id="bot-accounts-title">Most active bots</h3>
+          <ol class="rank-list" id="bot-accounts"></ol>
+        </section>
+        <section aria-labelledby="bot-wikis-title">
+          <h3 id="bot-wikis-title">Most automated wikis</h3>
+          <ol class="bars bot" id="bot-wikis"></ol>
+        </section>
+        <section aria-labelledby="bot-pages-title">
+          <h3 id="bot-pages-title">Pages bots are editing</h3>
+          <ol class="rank-list" id="bot-pages"></ol>
+        </section>
+      </div>
+    </section>
+
+    <footer class="foot muted small">
+      <span id="updated">Not updated yet</span>
+      <span>Data from <a href="https://stream.wikimedia.org/?doc" rel="noopener">Wikimedia EventStreams</a>. <a href="/api/docs">API</a></span>
+    </footer>
+  </main>
+
+  <dialog id="detail" closedby="any" aria-labelledby="detail-title">
+    <div class="detail">
+      <header class="detail-head">
+        <div class="detail-thumb" id="detail-thumb" hidden></div>
+        <div class="detail-titles">
+          <p class="muted small" id="detail-wiki"></p>
+          <h2 id="detail-title"></h2>
+          <p class="detail-orig" id="detail-orig" hidden></p>
+          <p class="detail-desc muted" id="detail-desc"></p>
+        </div>
+        <form method="dialog"><button class="icon-btn" aria-label="Close" autofocus>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9"/></svg>
+        </button></form>
+      </header>
+      <p class="detail-extract" id="detail-extract"></p>
+      <dl class="detail-stats" id="detail-stats"></dl>
+
+      <section class="diff-section" aria-labelledby="diff-title">
+        <div class="diff-head">
+          <h3 id="diff-title">What changed</h3>
+          <div class="diff-nav">
+            <button type="button" class="btn btn-quiet" id="diff-newer" disabled>Newer edit</button>
+            <button type="button" class="btn btn-quiet" id="diff-older" disabled>Older edit</button>
+          </div>
+        </div>
+        <p class="diff-meta" id="diff-meta"></p>
+        <div class="diff" id="diff" aria-live="polite"></div>
+      </section>
+
+      <section aria-labelledby="d-edits-title">
+        <h3 id="d-edits-title">Edits per window</h3>
+        <div class="chart chart-sm" id="detail-edits"></div>
+      </section>
+      <section aria-labelledby="d-z-title">
+        <h3 id="d-z-title">z-score against this page's normal rate</h3>
+        <div class="chart chart-sm" id="detail-z"></div>
+      </section>
+      <p class="detail-actions">
+        <a class="btn primary" id="detail-link" target="_blank" rel="noopener">Open on Wikipedia</a>
+        <a class="btn" id="detail-en" target="_blank" rel="noopener" hidden>English article</a>
+        <a class="btn" id="detail-history" target="_blank" rel="noopener">Full history</a>
+        <button type="button" class="btn" id="detail-copy">Copy link</button>
+      </p>
+    </div>
+  </dialog>
+
+  <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+</body>
+</html>
