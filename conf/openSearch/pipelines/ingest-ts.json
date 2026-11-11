@@ -1,7 +1,0 @@
-{
-"description": "Ensure ts_bucket is date and add day/hour fields",
-"processors": [
-{"date": {"field": "ts_bucket", "formats": ["strict_date_optional_time", "epoch_millis"]}},
-{"set": {"field": "day_of_week", "value": "{{#ctx.ts_bucket}}ctx.ts_bucket.getDayOfWeekOrdinal(){{/ctx.ts_bucket}}"}}
-]
-}

@@ -22,3 +22,6 @@ kafka-topics --bootstrap-server "$BOOTSTRAP" \
 
 kafka-topics --bootstrap-server "$BOOTSTRAP" \
   --create --if-not-exists --topic trending.windows.5m --partitions 3 --replication-factor 1
+
+kafka-topics --bootstrap-server "$BOOTSTRAP" \
+  --create --if-not-exists --topic trending.bots.5m --partitions 3 --replication-factor 1

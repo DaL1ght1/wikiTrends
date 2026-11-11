@@ -1,38 +1,45 @@
-name: BIG-DATA
+name: wikitrends
+
+# One command brings up everything, including all setup steps:
+#   docker compose up -d --build
+# One-shot init services (kafka-init, opensearch-init, dashboards-init) run
+# first and exit; the apps wait for them via `service_completed_successfully`.
+
+x-app-defaults: &app
+  restart: unless-stopped
+  networks: [core]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
 
 services:
-  # -----------------------------
-  # Core Data Infrastructure
-  # -----------------------------
+  # ---------------------------------------------------------------------------
+  # Messaging
+  # ---------------------------------------------------------------------------
   zookeeper:
-      container_name: zookeeper
-      image: zookeeper:latest
-      ports:
-        - "2181:2181"
-      # Added environment variable to enable 4LW commands for healthcheck
-      environment:
-        ZOO_4LW_COMMANDS_WHITELIST: ruok, stat
-      networks: [core]
-      healthcheck:
-        # More robust check using the 'ruok' command
-        test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
-        interval: 10s
-        timeout: 5s
-        retries: 5
-        start_period: 10s
+    <<: *app
+    image: zookeeper:3.9.2
+    container_name: zookeeper
+    environment:
+      ZOO_4LW_COMMANDS_WHITELIST: ruok,stat
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   kafka:
+    <<: *app
     image: confluentinc/cp-kafka:7.6.1
     container_name: kafka
     depends_on:
-      zookeeper:
-        condition: service_healthy
+      zookeeper: { condition: service_healthy }
     ports:
-      - "29092:29092"     # host access
+      - "29092:29092"   # host access: localhost:29092
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # internal for containers, external for host
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
@@ -42,7 +49,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_RETENTION_HOURS: 72
-    networks: [core]
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
@@ -51,123 +58,131 @@ services:
       timeout: 10s
       retries: 12
 
-
-
   kafka-init:
     image: confluentinc/cp-kafka:7.6.1
     container_name: kafka-init
     depends_on:
-      kafka:
-        condition: service_healthy
+      kafka: { condition: service_healthy }
     volumes:
       - ./conf/kafka:/conf:ro
-    entrypoint: ["bash","-lc","/conf/create-topics.sh"]
+    entrypoint: ["bash", "/conf/create-topics.sh"]
     networks: [core]
     restart: "no"
 
-
+  # ---------------------------------------------------------------------------
+  # Search + dashboards
+  # ---------------------------------------------------------------------------
   opensearch:
+    <<: *app
     image: opensearchproject/opensearch:2.14.0
     container_name: opensearch
     environment:
       discovery.type: single-node
-      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_SECURITY_PLUGIN: "true"   # local demo only, see README "Security"
       OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
     ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
     ports:
       - "9200:9200"
     volumes:
       - opensearch-data:/usr/share/opensearch/data
-      - ./conf/opensearch:/usr/share/opensearch/config-extra
-    networks:
-      - core
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
+
+  opensearch-init:
+    build: ./apps/bootstrap
+    container_name: opensearch-init
+    command: ["python", "opensearch_setup.py"]
+    depends_on:
+      opensearch: { condition: service_healthy }
+    environment:
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      RETENTION_DAYS: ${RETENTION_DAYS:-7}
+      CONF_DIR: /conf/opensearch
+    volumes:
+      - ./conf/opensearch:/conf/opensearch:ro
+    networks: [core]
+    restart: "no"
 
   opensearch-dashboards:
+    <<: *app
     image: opensearchproject/opensearch-dashboards:2.14.0
     container_name: opensearch-dashboards
     depends_on:
-      opensearch:
-        condition: service_healthy
+      opensearch: { condition: service_healthy }
     environment:
       OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
       DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
     ports:
       - "5601:5601"
-    networks:
-      - core
+
+  dashboards-init:
+    build: ./apps/bootstrap
+    container_name: dashboards-init
+    command: ["python", "dashboards_setup.py"]
+    depends_on:
+      opensearch-init: { condition: service_completed_successfully }
+      opensearch-dashboards: { condition: service_started }
+    environment:
+      DASHBOARDS_URL: http://opensearch-dashboards:5601
+    networks: [core]
+    restart: "no"
 
   grafana:
+    <<: *app
     image: grafana/grafana:10.4.3
     container_name: grafana
     depends_on:
-      opensearch:
-        condition: service_healthy
+      opensearch-init: { condition: service_completed_successfully }
     environment:
+      GF_INSTALL_PLUGINS: grafana-opensearch-datasource
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/trending.json
     ports:
       - "3000:3000"
     volumes:
-      - ./conf/grafana/provisioning:/etc/grafana/provisioning
-      - ./conf/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./conf/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./conf/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
-    networks:
-      - core
 
-  # -----------------------------
-  # Spark Runtime
-  # -----------------------------
+  # ---------------------------------------------------------------------------
+  # Spark
+  # ---------------------------------------------------------------------------
   spark-master:
+    <<: *app
     image: apache/spark:3.5.3
     container_name: spark-master
-    environment:
-      SPARK_MODE: master
-      SPARK_NO_DAEMONIZE: "true"
     ports:
       - "7077:7077"
       - "8080:8080"
-    networks:
-      - core
-    # Add this command to start the master process in the foreground
-    command: [ "/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master" ]
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080" ]
+      test: ["CMD", "curl", "-fs", "http://localhost:8080"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   spark-worker-1:
+    <<: *app
     image: apache/spark:3.5.3
     container_name: spark-worker-1
     environment:
-      SPARK_MODE: worker
-      SPARK_MASTER_URL: spark://spark-master:7077
-      SPARK_WORKER_MEMORY: 6G
-      SPARK_WORKER_CORES: "3"
-      SPARK_NO_DAEMONIZE: "true"
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-3G}
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-3}
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     depends_on:
-      spark-master:
-        condition: service_healthy
-    networks:
-      - core
+      spark-master: { condition: service_healthy }
 
-  # -----------------------------
-  # Hadoop (HDFS) + HBase Standalone
-  # -----------------------------
-  # Using bde2020 Hadoop images - more reliable and modular
+  # ---------------------------------------------------------------------------
+  # HDFS (checkpoints + baseline lake) and HBase (long-term window history)
+  # ---------------------------------------------------------------------------
   hadoop-namenode:
+    <<: *app
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
     container_name: hadoop-namenode
     environment:
@@ -178,158 +193,156 @@ services:
       HDFS_CONF_dfs_permissions_enabled: "false"
       HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
     ports:
-      - "9870:9870"    # NameNode Web UI
-      - "9000:9000"    # HDFS
+      - "9870:9870"
+      - "9000:9000"
     volumes:
       - hadoop-namenode:/hadoop/dfs/name
-    networks:
-      - core
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9870"]
+      test: ["CMD", "curl", "-fs", "http://localhost:9870"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   hadoop-datanode:
+    <<: *app
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     container_name: hadoop-datanode
     environment:
+      SERVICE_PRECONDITION: "hadoop-namenode:9870"
       CORE_CONF_fs_defaultFS: hdfs://hadoop-namenode:9000
       CORE_CONF_hadoop_http_staticuser_user: root
       HDFS_CONF_dfs_webhdfs_enabled: "true"
       HDFS_CONF_dfs_permissions_enabled: "false"
     ports:
-      - "9864:9864"    # DataNode Web UI
+      - "9864:9864"
     volumes:
       - hadoop-datanode:/hadoop/dfs/data
     depends_on:
-      hadoop-namenode:
-        condition: service_healthy
-    networks:
-      - core
+      hadoop-namenode: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9864"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
-  # Using standalone HBase image with embedded components
   hbase:
+    <<: *app
     image: harisekhon/hbase:2.1
     container_name: hbase
     hostname: hbase
-    environment:
-      HBASE_MANAGES_ZK: "true"
     ports:
       - "16010:16010"  # Master UI
-      - "16030:16030"  # RegionServer UI
-      - "8085:8085"    # REST
-      - "9090:9090"    # Thrift
-    networks:
-      - core
-    # ✅ Use an endpoint that returns 200
+      - "9090:9090"    # Thrift API (used by hbase-writer)
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'Registered as active master' /hbase/logs/hbase--master-hbase.log"]
       interval: 10s
       timeout: 5s
       retries: 40
-      start_period: 90s
+      start_period: 60s
 
-
-      # -----------------------------
-  # Your Application Containers
-  # -----------------------------
+  # ---------------------------------------------------------------------------
+  # Pipeline applications
+  # ---------------------------------------------------------------------------
   sse-ingestor:
+    <<: *app
     build: ./apps/sse-ingestor
     container_name: sse-ingestor
     depends_on:
-      kafka-init:
-        condition: service_completed_successfully
+      kafka-init: { condition: service_completed_successfully }
     environment:
       EVENTSTREAM_URL: ${EVENTSTREAM_URL:-https://stream.wikimedia.org/v2/stream/recentchange}
       KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-kafka:9092}
       KAFKA_TOPIC: ${INPUT_TOPIC:-wikimedia.recentchange.raw}
-      USER_AGENT: "Siwar-krifi-trending-pipeline/1.1 (contact=khalil.krifi@ensi-uma.tn)"
-    networks:
-      - core
-    restart: unless-stopped
-
+      USER_AGENT: ${USER_AGENT:-Siwar-krifi-trending-pipeline/2.0 (contact=khalil.krifi@ensi-uma.tn)}
+    volumes:
+      - ingestor-state:/state
 
   stream-aggregator:
+    <<: *app
     build: ./apps/stream-aggregator
     container_name: stream-aggregator
     depends_on:
-      kafka:
-        condition: service_healthy
-      spark-master:
-        condition: service_healthy
-      hadoop-namenode:
-        condition: service_healthy
-      hbase:
-        condition: service_healthy
+      kafka-init: { condition: service_completed_successfully }
+      spark-master: { condition: service_healthy }
+      hadoop-datanode: { condition: service_healthy }
     environment:
       KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-kafka:9092}
       INPUT_TOPIC: ${INPUT_TOPIC:-wikimedia.recentchange.raw}
       CLEAN_TOPIC: ${CLEAN_TOPIC:-wikimedia.recentchange.clean}
       TREND_TOPIC_1M: ${TREND_TOPIC_1M:-trending.windows.1m}
       TREND_TOPIC_5M: ${TREND_TOPIC_5M:-trending.windows.5m}
-      HBASE_REST_URL: http://hbase:8085
-      CHECKPOINT_DIR: hdfs://hadoop-namenode:9000/checkpoints/stream-agg
-    volumes:
-      - ivy-cache:/root/.ivy2
-    networks:
-      - core
-    restart: unless-stopped
+      CHECKPOINT_DIR: hdfs://hadoop-namenode:9000/checkpoints/stream-agg-v3
+      BASELINE_ROOT: hdfs://hadoop-namenode:9000/lake/baselines/edits_hourly
+      NAMESPACES: ${NAMESPACES:-0}
+      TRACK_BOTS: ${TRACK_BOTS:-true}
+      WATERMARK: ${WATERMARK:-1 minute}
+      TRIGGER_EVERY: ${TRIGGER_EVERY:-10 seconds}
+      SPARK_CORES_MAX: "2"
+
+  baseline-batch:
+    <<: *app
+    build: ./apps/baseline-batch
+    container_name: baseline-batch
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+      spark-master: { condition: service_healthy }
+      hadoop-datanode: { condition: service_healthy }
+    environment:
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-kafka:9092}
+      CLEAN_TOPIC: ${CLEAN_TOPIC:-wikimedia.recentchange.clean}
+      BASELINE_ROOT: hdfs://hadoop-namenode:9000/lake/baselines/edits_hourly
+      BASELINE_INTERVAL_HOURS: ${BASELINE_INTERVAL_HOURS:-6}
+      BASELINE_INITIAL_DELAY_MINUTES: ${BASELINE_INITIAL_DELAY_MINUTES:-60}
+      SPARK_CORES_MAX: "1"
 
   trending-indexer:
+    <<: *app
     build: ./apps/trending-indexer
     container_name: trending-indexer
     depends_on:
-      kafka:
-        condition: service_healthy
-      opensearch:
-        condition: service_healthy
+      kafka-init: { condition: service_completed_successfully }
+      opensearch-init: { condition: service_completed_successfully }
     environment:
       KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-kafka:9092}
-      INPUT_TOPICS: ${INPUT_TOPICS:-trending.windows.1m,trending.windows.5m}
+      INPUT_TOPICS: ${TREND_TOPIC_1M:-trending.windows.1m},${TREND_TOPIC_5M:-trending.windows.5m},trending.bots.5m
       OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
       INDEX_1M: ${INDEX_1M:-trending-1m}
       INDEX_5M: ${INDEX_5M:-trending-5m}
 
-
-    networks:
-      - core
-    restart: unless-stopped
-
-  baseline-batch:
-    profiles:
-      - batch
-    build: ./apps/baseline-batch
-    container_name: baseline-batch
-    depends_on:
-      spark-master:
-        condition: service_healthy
-      hbase:
-        condition: service_healthy
-    environment:
-      AQS_BASE: ${AQS_BASE:-https://wikimedia.org/api/rest_v1/metrics/pageviews}
-      LAKE_ROOT: /lake
-      SPARK_MASTER_URL: spark://spark-master:7077
-    volumes:
-      - lake:/lake
-    networks:
-      - core
-
   hbase-writer:
+    <<: *app
     build: ./apps/hbase-writer
+    container_name: hbase-writer
     depends_on:
-      kafka:
-        condition: service_healthy
-      hbase:
-        condition: service_healthy
+      kafka-init: { condition: service_completed_successfully }
+      hbase: { condition: service_healthy }
     environment:
-      KAFKA_BOOTSTRAP: kafka:9092
-      INPUT_TOPICS: trending.windows.1m,trending.windows.5m
-      HBASE_REST_URL: http://hbase:8085
-      HBASE_TABLE: rc_clean_minute
-    networks: [ core ]
-    restart: unless-stopped
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-kafka:9092}
+      INPUT_TOPICS: ${TREND_TOPIC_1M:-trending.windows.1m},${TREND_TOPIC_5M:-trending.windows.5m}
+      HBASE_THRIFT_HOST: hbase
+      HBASE_THRIFT_PORT: "9090"
+      HBASE_TABLE: trending_windows
 
+  trending-ui:
+    <<: *app
+    build: ./apps/trending-ui
+    container_name: trending-ui
+    depends_on:
+      opensearch-init: { condition: service_completed_successfully }
+    environment:
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      # Sent with the English-title lookups to the MediaWiki API.
+      USER_AGENT: ${USER_AGENT:-Siwar-krifi-trending-pipeline/2.0 (contact=khalil.krifi@ensi-uma.tn)}
+      # Alerts (see README "Alerts")
+      ALERTS_ENABLED: ${ALERTS_ENABLED:-true}
+      ALERT_MIN_Z: ${ALERT_MIN_Z:-5}
+      ALERT_MIN_EDITORS: ${ALERT_MIN_EDITORS:-2}
+      ALERT_MIN_LANGUAGES: ${ALERT_MIN_LANGUAGES:-3}
+      ALERT_COOLDOWN_MINUTES: ${ALERT_COOLDOWN_MINUTES:-60}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      PUBLIC_UI_URL: ${PUBLIC_UI_URL:-http://localhost:8000}
+    ports:
+      - "8000:8000"
 
 networks:
   core:
@@ -338,9 +351,7 @@ networks:
 volumes:
   kafka-data:
   opensearch-data:
-  spark-checkpoints:
-  lake:
   grafana-data:
   hadoop-namenode:
   hadoop-datanode:
-  ivy-cache:
+  ingestor-state:

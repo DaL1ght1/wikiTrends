@@ -1,0 +1,47 @@
+{
+  "index_patterns": ["trending-__WINDOW__-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "5s",
+      "index.default_pipeline": "trending-ingest"
+    },
+    "aliases": {
+      "trending-__WINDOW__": {}
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "ts_bucket":      {"type": "date"},
+        "window_start":   {"type": "date"},
+        "last_event_ts":  {"type": "date"},
+        "indexed_at":     {"type": "date"},
+        "window_size":    {"type": "keyword"},
+        "actor":          {"type": "keyword"},
+        "wiki":           {"type": "keyword"},
+        "lang":           {"type": "keyword"},
+        "server_name":    {"type": "keyword"},
+        "namespace":      {"type": "integer"},
+        "page_key":       {"type": "keyword"},
+        "title":          {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 512}}},
+        "url":            {"type": "keyword", "index": false},
+        "score":          {"type": "float"},
+        "activity":       {"type": "float"},
+        "z_score":        {"type": "float"},
+        "expected_edits": {"type": "float"},
+        "has_baseline":   {"type": "boolean"},
+        "edit_count":     {"type": "integer"},
+        "unique_editors": {"type": "integer"},
+        "sum_abs_delta":  {"type": "long"},
+        "net_delta":      {"type": "long"},
+        "revert_count":   {"type": "integer"},
+        "new_page":       {"type": "integer"},
+        "minor_share":    {"type": "float"},
+        "bot_share":      {"type": "float"}
+      }
+    }
+  },
+  "_meta": {"owner": "wikitrends", "window": "__WINDOW__"}
+}

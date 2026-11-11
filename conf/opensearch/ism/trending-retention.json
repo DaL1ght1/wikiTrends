@@ -1,0 +1,19 @@
+{
+  "policy": {
+    "description": "Delete daily trending indices after the retention period.",
+    "default_state": "hot",
+    "states": [
+      {
+        "name": "hot",
+        "actions": [],
+        "transitions": [{"state_name": "delete", "conditions": {"min_index_age": "__RETENTION__"}}]
+      },
+      {
+        "name": "delete",
+        "actions": [{"delete": {}}],
+        "transitions": []
+      }
+    ],
+    "ism_template": [{"index_patterns": ["trending-1m-*", "trending-5m-*", "trending-bots-5m-*", "trending-alerts-*"], "priority": 100}]
+  }
+}

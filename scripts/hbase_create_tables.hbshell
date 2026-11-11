@@ -1,3 +1,4 @@
-create 'rc_clean_minute', {NAME => 'm', VERSIONS => 1, BLOOMFILTER => 'ROW', COMPRESSION => 'SNAPPY', TTL => 7776000}
-
-create 'rc_raw_clean', {NAME => 'c', VERSIONS => 1, BLOOMFILTER => 'ROW', COMPRESSION => 'SNAPPY', TTL => 2592000}
+# Optional: hbase-writer creates this table automatically on startup.
+# Manual equivalent:  docker compose exec hbase hbase shell /scripts/hbase_create_tables.hbshell
+create 'trending_windows', {NAME => 'm', VERSIONS => 1, BLOOMFILTER => 'ROW', TTL => 7776000}, {NAME => 'i', VERSIONS => 1, TTL => 7776000}
+exit
