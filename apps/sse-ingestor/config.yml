@@ -1,0 +1,18 @@
+# Ingest-time filters for the SSE ingestor. Patterns are full-match regexes on
+# the `wiki` field (e.g. enwiki, frwiki, wikidatawiki, commonswiki).
+
+# recentchange event types to keep. "new" = page creations, often what trends.
+types: [edit, new]
+
+# Keep only these wikis (empty = all).
+include_wikis: []
+
+# Drop these wikis. Wikidata (~25% of edits in a Nov 2026 sample) has Q-id
+# titles ("Q56876694") and heavy semi-automated editing by non-bot accounts
+# (batch tools), which would crowd the trending list without being trends.
+exclude_wikis:
+  - wikidatawiki
+
+# Leave empty here; namespaces are filtered in the stream aggregator
+# (NAMESPACES env) so the raw topic keeps every namespace.
+namespaces: []

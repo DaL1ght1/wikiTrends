@@ -1,80 +1,98 @@
-import os, base64, ujson, requests
+"""Kafka trending.windows.{1m,5m} -> HBase table (long-term page history).
+
+Uses the HBase Thrift API (port 9090) through happybase. The previous REST
+approach failed because port 8085 on the HBase image is the REST server's
+*info UI*, not the REST API, hence the HTTP 405s.
+
+Creates the table on startup if missing, writes in batches and commits Kafka
+offsets only after a batch is stored.
+"""
+
+import os
+import sys
+import time
+
+import happybase
+import ujson
 from kafka import KafkaConsumer
-from datetime import datetime
 
-BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP","kafka:9092")
-INPUT_TOPICS = os.getenv("INPUT_TOPICS","trending.windows.1m,trending.windows.5m").split(",")
-HBASE_REST = os.getenv("HBASE_REST_URL","http://hbase:8085")
-TABLE = os.getenv("HBASE_TABLE","rc_clean_minute")
+from rows import cells, row_key
 
-def b64(s):
-    if isinstance(s, str):
-        s = s.encode("utf-8")
-    return base64.b64encode(s).decode("ascii")
+BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
+INPUT_TOPICS = os.getenv("INPUT_TOPICS", "trending.windows.1m,trending.windows.5m").split(",")
+HBASE_HOST = os.getenv("HBASE_THRIFT_HOST", "hbase")
+HBASE_PORT = int(os.getenv("HBASE_THRIFT_PORT", "9090"))
+TABLE = os.getenv("HBASE_TABLE", "trending_windows")
+TTL_SECONDS = int(os.getenv("HBASE_TTL_SECONDS", str(90 * 24 * 3600)))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "500"))
 
-def rowkey(d):
-    # row key: wiki|title|yyyymmddHHmm (minute bucket)
-    ts = d.get("ts_bucket")
-    # ts is ISO from Spark; keep as minute resolution
-    minute = ts[:16].replace("-","").replace(":","").replace("T","")
-    return f"{d.get('wiki')}|{d.get('title')}|{minute}"
 
-def to_cells(d):
-    m = {
-      "edit_count": d.get("edit_count",0),
-      "unique_editors": d.get("unique_editors",0),
-      "sum_abs_delta": d.get("sum_abs_delta",0),
-      "revert_count": d.get("revert_count",0),
-      "minor_share": d.get("minor_share",0.0),
-      "bot_share": d.get("bot_share",0.0),
-      "score": d.get("score",0.0),
-      "window_size": d.get("window_size","1m")
-    }
-    cells = []
-    for k,v in m.items():
-        cells.append({"column": b64(f"m:{k}"), "$": b64(str(v))})
-    return cells
+def log(msg: str) -> None:
+    print(f"[hbase-writer] {msg}", file=sys.stderr, flush=True)
 
-def main():
+
+def connect() -> happybase.Connection:
+    for attempt in range(1, 31):
+        try:
+            conn = happybase.Connection(HBASE_HOST, HBASE_PORT, timeout=30000, autoconnect=True)
+            existing = {t.decode() for t in conn.tables()}
+            if TABLE not in existing:
+                conn.create_table(TABLE, {
+                    "m": dict(max_versions=1, time_to_live=TTL_SECONDS, bloom_filter_type="ROW"),
+                    "i": dict(max_versions=1, time_to_live=TTL_SECONDS),
+                })
+                log(f"created table {TABLE}")
+            return conn
+        except Exception as e:
+            log(f"HBase not ready ({e!r}), retry {attempt}/30")
+            time.sleep(5)
+    raise RuntimeError("could not connect to HBase Thrift")
+
+
+def rewind(consumer: KafkaConsumer) -> None:
+    """Seek every assigned partition back to its last committed offset."""
+    for tp in consumer.assignment():
+        committed = consumer.committed(tp)
+        if committed is not None:
+            consumer.seek(tp, committed)
+
+
+def main() -> None:
+    conn = connect()
+    table = conn.table(TABLE)
     consumer = KafkaConsumer(
         *INPUT_TOPICS,
         bootstrap_servers=BOOTSTRAP,
+        group_id=os.getenv("GROUP_ID", "hbase-writer"),
         auto_offset_reset="latest",
-        enable_auto_commit=True,
+        enable_auto_commit=False,
         value_deserializer=lambda v: ujson.loads(v.decode("utf-8")),
     )
-    session = requests.Session()
-    
-    # Create table if it doesn't exist
-    schema = {
-        "name": TABLE,
-        "ColumnSchema": [{"name": "m"}]  # column family 'm' for metrics
-    }
-    r = session.put(f"{HBASE_REST}/{TABLE}/schema", 
-                    json=schema,
-                    headers={"Content-Type": "application/json"},
-                    timeout=10)
-    if r.status_code not in [200, 201]:
-        print(f"Table creation result: {r.status_code} - {r.text}")
-    else:
-        print(f"Table {TABLE} created or already exists")
-    ####
-    print(f"Starting to consume from topics: {INPUT_TOPICS}")
-    for msg in consumer:
-        d = msg.value
-        rk = rowkey(d)
-        cells = to_cells(d)
-        # Write to specific row using standard HBase REST API
-        payload = {"Row":[{"key": b64(rk), "Cell": cells}]}
-        url = f"{HBASE_REST}/{TABLE}/{rk}"
-        r = session.put(url, 
-                        json=payload,
-                        headers={"Content-Type": "application/json", "Accept": "application/json"},
-                        timeout=5)
-        if r.status_code >= 300:
-            print(f"HBase write error {r.status_code} to {url}: {r.text[:200]}")
-        elif msg.offset % 100 == 0:  # Log every 100 messages
-            print(f"Successfully wrote {msg.offset} messages to HBase")
+    log(f"consuming {INPUT_TOPICS} -> hbase table {TABLE}")
+    written, last_report = 0, time.monotonic()
+    while True:
+        polled = consumer.poll(timeout_ms=1000, max_records=BATCH_SIZE)
+        n = 0
+        if polled:
+            try:
+                with table.batch(batch_size=BATCH_SIZE) as b:
+                    for records in polled.values():
+                        for msg in records:
+                            if isinstance(msg.value, dict) and msg.value.get("ts_bucket"):
+                                b.put(row_key(msg.value), cells(msg.value))
+                                n += 1
+                consumer.commit()
+                written += n
+            except Exception as e:
+                # Reconnect and let Kafka redeliver the uncommitted batch.
+                log(f"write failed: {e!r}; reconnecting")
+                conn = connect()
+                table = conn.table(TABLE)
+                rewind(consumer)
+        if time.monotonic() - last_report >= 60:
+            log(f"wrote {written} rows in the last minute")
+            written, last_report = 0, time.monotonic()
+
 
 if __name__ == "__main__":
     main()

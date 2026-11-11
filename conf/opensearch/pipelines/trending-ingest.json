@@ -1,0 +1,6 @@
+{
+  "description": "Stamp each window document with the time it reached OpenSearch (for end-to-end latency).",
+  "processors": [
+    {"set": {"field": "indexed_at", "value": "{{_ingest.timestamp}}"}}
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "index_patterns": ["trending-alerts-*"],
+  "priority": 100,
+  "template": {
+    "settings": {"number_of_shards": 1, "number_of_replicas": 0, "refresh_interval": "2s"},
+    "aliases": {"trending-alerts": {}},
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "ts":          {"type": "date"},
+        "kind":        {"type": "keyword"},
+        "key":         {"type": "keyword"},
+        "qid":         {"type": "keyword"},
+        "headline":    {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 512}}},
+        "wiki":        {"type": "keyword"},
+        "wikis":       {"type": "keyword"},
+        "lang":        {"type": "keyword"},
+        "server_name": {"type": "keyword"},
+        "title":       {"type": "keyword", "ignore_above": 512},
+        "url":         {"type": "keyword", "index": false},
+        "z_score":     {"type": "float"},
+        "edits":       {"type": "integer"},
+        "editors":     {"type": "integer"},
+        "languages":   {"type": "integer"},
+        "reason":      {"type": "text"}
+      }
+    }
+  },
+  "_meta": {"owner": "wikitrends", "content": "spike and multi-language story alerts"}
+}

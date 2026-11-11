@@ -1,22 +1,36 @@
 apiVersion: 1
 
-
+# Remove the v1 datasource that pointed at trending-* (it mixed 1m and 5m windows).
 deleteDatasources:
   - name: OpenSearch
     orgId: 1
 
-
 datasources:
-  - name: OpenSearch
+  - name: OpenSearch 1m windows
     type: grafana-opensearch-datasource
-    uid: opensearch-trending
+    uid: opensearch-1m
+    access: proxy
+    url: http://opensearch:9200
+    isDefault: true
+    jsonData:
+      database: "trending-1m-*"
+      flavor: opensearch
+      version: "2.14.0"
+      timeField: ts_bucket
+      interval: ""
+      maxConcurrentShardRequests: 5
+      pplEnabled: false
+
+  - name: OpenSearch 5m windows
+    type: grafana-opensearch-datasource
+    uid: opensearch-5m
     access: proxy
     url: http://opensearch:9200
     jsonData:
-      database: "trending-*"
-      flavor: "opensearch"
-      timeField: "ts_bucket"
+      database: "trending-5m-*"
+      flavor: opensearch
       version: "2.14.0"
-      interval: "10s"
+      timeField: ts_bucket
+      interval: ""
+      maxConcurrentShardRequests: 5
       pplEnabled: false
-    isDefault: true
