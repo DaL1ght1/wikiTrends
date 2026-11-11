@@ -87,29 +87,7 @@ in the Alerts panel.
 
 ## How it works
 
-```
-Wikimedia EventStreams
-        │  every edit, every wiki (Server-Sent Events)
-        ▼
-  sse-ingestor ──▶ Kafka: recentchange.raw
-                          │
-                          ▼
-              Spark stream-aggregator ──▶ Kafka: recentchange.clean ──▶ baseline-batch (Spark, every 6 h)
-               1-min and 5-min windows                                     │ normal edit rate per page
-               score + z-score   ◀───────────── HDFS baselines ◀───────────┘
-                          │
-                          ▼
-              Kafka: trending windows, bot accounts
-                 │                        │
-                 ▼                        ▼
-        trending-indexer            hbase-writer
-                 │                        │
-                 ▼                        ▼
-            OpenSearch               HBase (90-day history)
-                 │
-                 ▼
-   trending-ui: radar, stories, alerts, diffs (+ Grafana, OpenSearch Dashboards)
-```
+![Real-time Wikipedia trending detection pipeline](docs/architecture.png)
 
 | Service | Job |
 |---|---|
